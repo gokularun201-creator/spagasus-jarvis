@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPAGASUS JARVIS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-status="STANDBY">
+  <div class="stars"></div>
+  <div class="hud-grid"></div>
+  <div class="hud-corner tl"></div>
+  <div class="hud-corner tr"></div>
+  <div class="hud-corner bl"></div>
+  <div class="hud-corner br"></div>
+  <div class="hud-telemetry">
+    <span>SYSTEM: ONLINE</span>
+    <span>CORE FREQ: 4.8 GHz</span>
+    <span>SYS FLUX: OPTIMAL</span>
+    <span>AUDIO STT: HIGH-DPI</span>
+  </div>
+  <div class="shoot"></div>
+  <div class="shoot sh2"></div>
+
+<div class="wrap">
+  <nav class="nav" id="nav">
+    <button class="nav-btn active" data-view="home">⌂&nbsp;HOME</button>
+    <button class="nav-btn" data-view="chat">✆&nbsp;CHAT</button>
+    <button class="nav-btn" data-view="dash">▤&nbsp;DASHBOARD</button>
+    <button class="nav-btn" id="keysNavBtn">🔑&nbsp;KEYS</button>
+  </nav>
+  <div class="top">
+    <div class="brand">
+      <h1>SPAGASUS <b>JARVIS</b></h1>
+      <div class="edition">SG SATURN CORE · v1.0 · <span style="color:#3ddcff;letter-spacing:0.06em">🌊 WISPR FLOW</span></div>
+    </div>
+    <div class="top-right">
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="chip"><span class="dot"></span><span id="st">STANDBY</span></div>
+      <button class="cam top-cam" id="cam2">◉ CAM</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="side">
+      <div class="stats">
+        <div class="stat"><div class="k">CPU</div><div class="v" id="s-cpu">--%</div><div class="bar"><i id="b-cpu"></i></div></div>
+        <div class="stat"><div class="k">RAM</div><div class="v" id="s-ram">--%</div><div class="bar"><i id="b-ram"></i></div></div>
+        <div class="stat"><div class="k">DISK</div><div class="v" id="s-disk">--%</div><div class="bar"><i id="b-disk"></i></div></div>
+        <div class="stat"><div class="k">BATTERY</div><div class="v" id="s-bat">--</div><div class="bar"><i id="b-bat"></i></div></div>
+      </div>
+
+      <div class="lower">
+        <div class="panel">
+          <h3>CONNECTED DEVICES</h3>
+          <div id="devices"><div class="dev"><span>Scanning…</span></div></div>
+        </div>
+        <div class="panel">
+          <h3>RECENT ACTIONS</h3>
+          <div id="actions"><div class="act">No actions yet.</div></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="quick-dock" id="quickDock">
+          <button class="dock-btn" id="dockUnlock" title="Wake and Unlock Mobile with PIN 1234">🔓 UNLOCK</button>
+          <button class="dock-btn" id="dockVision" title="AI Multimodal Screen Analysis">👁️ VISION</button>
+          <button class="dock-btn" id="dockPlay" title="Toggle Media Play/Pause">⏯️ PLAY</button>
+          <button class="dock-btn" id="dockNext" title="Skip to Next Track">⏭️ NEXT</button>
+          <button class="dock-btn" id="dockMute" title="Toggle Mute">🔇 MUTE</button>
+          <button class="dock-btn" id="dockDesktop" title="Show Desktop">🖥️ DESK</button>
+          <button class="dock-btn" id="dockTimer" title="Set 5 Min Timer">⏱️ 5m</button>
+        </div>
+        <div class="controls-row">
+          <button class="cam" id="cam">◉ CAM</button>
+          <button class="wake" id="wake">WAKE</button>
+          <div class="cmd-wrap">
+            <input class="cmd" id="cmd" placeholder="Type a command or speak… (say 'Hey Jarvis', 'What's on my screen', etc.)" autocomplete="off">
+            <button class="voice-btn" id="voiceBtn" title="Live Voice Listener: Click to speak or auto-listen">🎙️ VOICE</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="center">
+      <div class="core-wrap">
+        <canvas class="audio-spectrum" id="audioSpectrum"></canvas>
+        <svg class="circuits" viewBox="0 0 200 200" fill="none" preserveAspectRatio="none">
+          <path d="M10 30 H65 V65 H100"/>
+          <path d="M190 40 H135 V75 H100"/>
+          <path d="M10 170 H55 V135 H100"/>
+          <path d="M190 165 H140 V130 H100"/>
+          <path d="M70 8 V55 H100"/>
+          <path d="M130 192 V145 H100"/>
+          <circle cx="65" cy="65" r="2.6"/>
+          <circle cx="135" cy="75" r="2.6"/>
+          <circle cx="55" cy="135" r="2.6"/>
+          <circle cx="140" cy="130" r="2.6"/>
+          <circle cx="100" cy="55" r="2.6"/>
+          <circle cx="100" cy="145" r="2.6"/>
+        </svg>
+        <div class="reactor-beam"></div>
+        <div class="core-halo"></div>
+        <div class="rays"></div>
+        <div class="aurora"></div>
+        <div class="rings rings-back"></div>
+        <div class="reactor"></div>
+        <div class="corona"></div>
+        <div class="vwave"></div>
+        <div class="globe">
+          <span class="gring lon"></span><span class="gring lon"></span><span class="gring lon"></span>
+          <span class="gring lon"></span><span class="gring lon"></span><span class="gring lon"></span>
+          <span class="gring lat eq"></span>
+          <span class="gring lat l1"></span><span class="gring lat l2"></span>
+          <span class="gring lat u1"></span><span class="gring lat u2"></span>
+          <span class="gring dash d1"></span><span class="gring dash d2"></span>
+          <div class="core-heart"></div>
+        </div>
+        <div class="rings rings-front"></div>
+        <div class="ringflow"><i></i></div>
+        <div class="radar"></div>
+        <div class="voice-rings"><i></i><i></i><i></i></div>
+        <div class="charge"></div>
+        <svg class="storm" viewBox="0 0 200 200" fill="none" preserveAspectRatio="none">
+          <path class="bolt b1" d="M100 40 L96 62 L108 64 L98 96 L112 98 L100 160"/>
+          <path class="bolt b2" d="M62 52 L66 74 L56 76 L62 106 L50 108"/>
+          <path class="bolt b3" d="M140 46 L136 70 L148 72 L138 104 L152 106"/>
+        </svg>
+        <div class="pulse"></div>
+        <div class="heartbeat"></div>
+        <div class="orbit"><span class="p"></span><span class="p"></span><span class="p"></span></div>
+        <div class="orbit o2"><span class="p"></span><span class="p"></span><span class="p"></span></div>
+        <div class="orbit o3"><span class="p"></span><span class="p"></span><span class="p"></span></div>
+        <div class="orbit o4"><span class="p"></span><span class="p"></span></div>
+        <div class="orbit o5"><span class="p"></span><span class="p"></span></div>
+        <div class="sg-text">SG</div>
+        <div class="fx" id="coreFx"></div>
+      </div>
+      <div class="task-line" id="task">Awaiting your command, boss…</div>
+      <div class="said-line" id="said"></div>
+    </div>
+
+    <div class="feed">
+      <div class="feed-head">COMMAND FEED</div>
+      <div class="log" id="log"><div class="empty" id="empty">AWAITING YOUR COMMAND, BOSS…</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="cam-pip" id="camPip">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <canvas id="camCanvas"></canvas>
+  <div class="cam-hud"><span class="livedot"></span><span id="camNote">CAMERA OFF — TAP ◉ CAM</span></div>
+</div>
+
+<div class="vision-overlay" id="visionOverlay" style="display:none">
+  <div class="vision-modal">
+    <div class="vision-head">
+      <h3>👁️ AI SCREEN VISION (GEMINI)</h3>
+      <button class="keys-close" id="visionClose">✕</button>
+    </div>
+    <div class="vision-body">
+      <div class="vision-img-wrap">
+        <img id="visionImg" alt="Screen Capture Preview">
+      </div>
+      <div class="vision-details">
+        <div class="vision-qwrap">
+          <input id="visionInput" placeholder="Ask anything about what's on your screen..." autocomplete="off">
+          <button id="visionAskBtn">ANALYZE</button>
+        </div>
+        <div class="vision-result" id="visionResult">Capturing and analyzing screen with Gemini...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="keys-overlay" id="keysOverlay">
+  <div class="keys-modal">
+    <div class="keys-head">
+      <h3>AI PROVIDER KEYS</h3>
+      <button class="keys-close" id="keysClose">✕</button>
+    </div>
+    <div class="keys-status" id="keysStatus"><span class="keys-dot" id="keysDot"></span><span id="keysStatusText">checking…</span></div>
+
+    <div class="keys-provs" id="keysProvs">
+      <button class="keys-prov active" data-p="gemini">✨<br>Gemini</button>
+      <button class="keys-prov" data-p="grok">🤖<br>Grok</button>
+      <button class="keys-prov" data-p="openai">🧠<br>OpenAI</button>
+      <button class="keys-prov" data-p="wispr">🌊<br>Wispr Flow</button>
+      <button class="keys-prov" data-p="custom">⚙<br>Custom</button>
+    </div>
+
+    <label class="keys-label">API KEY</label>
+    <div class="keys-keyrow">
+      <input class="keys-input" type="password" id="keysApiKey" placeholder="Paste your API key…" autocomplete="off">
+      <button class="keys-toggle" id="keysToggle">show</button>
+    </div>
+
+    <div id="keysCustomRow" style="display:none">
+      <label class="keys-label">BASE URL</label>
+      <input class="keys-input" type="text" id="keysBaseUrl" placeholder="https://api.example.com/v1">
+    </div>
+
+    <label class="keys-label">MODEL <span style="opacity:.6">(optional)</span></label>
+    <input class="keys-input" type="text" id="keysModel" placeholder="model name">
+
+    <button class="keys-btn" id="keysActivateBtn">ACTIVATE</button>
+    <div class="keys-msg" id="keysMsg"></div>
+    <div class="keys-hint">Key is verified with a live test call before saving. JARVIS restarts itself (~5s) to pick it up.</div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=20260829"></script>
+<script src="/static/keys.js?v=1"></script>
+</body>
+</html>

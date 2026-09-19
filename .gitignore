@@ -1,0 +1,30 @@
+# Environment & Secrets (NEVER COMMIT REAL CREDENTIALS)
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+.venv/
+env/
+venv/
+python/
+
+# Runtime files & databases
+database/
+*.log
+spagasus.log
+*.tmp
+
+# Browser/Edge runtime cache
+.edge-app-profile/
+
+# Pretrained models (distributed via Releases)
+models/
+
+# OS artifacts
+Thumbs.db
+Desktop.ini
+.DS_Store

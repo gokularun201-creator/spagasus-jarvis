@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SPAGASUS JARVIS · Mobile</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#000; color:#ffe6c8; font-family:Consolas,"Segoe UI",monospace; min-height:100vh;
+    background-image:radial-gradient(ellipse 90% 40% at 50% 0%, rgba(120,50,8,.35), transparent 60%); }
+  .top { padding:18px 18px 10px; border-bottom:1px solid rgba(255,154,61,.15); }
+  .top h1 { font-size:18px; letter-spacing:3px; color:#fff3e2; text-shadow:0 0 14px rgba(255,154,61,.6); }
+  .top h1 b { color:#ffa53d; }
+  .top .sub { font-size:9px; letter-spacing:3px; color:#8a6a4a; margin-top:3px; }
+  .chip { display:inline-block; margin-top:8px; font-size:10px; letter-spacing:2px; padding:3px 10px;
+    border:1px solid rgba(255,154,61,.4); color:#ffa53d; }
+  .conn { color:#ffe08a; } .disc { color:#ff4a3d; }
+  .body { padding:16px 18px; }
+  .pair { display:flex; gap:8px; }
+  .pair input { flex:1; background:rgba(12,6,1,.85); border:1px solid rgba(255,154,61,.3); color:#cfe7ff;
+    padding:10px; font-size:13px; border-radius:8px; outline:none; }
+  button { background:linear-gradient(180deg,#ffd9a0,#ff8a1e); color:#140800; border:0; border-radius:8px;
+    padding:11px 16px; font-weight:800; letter-spacing:1px; font-family:inherit; font-size:13px; }
+  button:active { transform:scale(.97); }
+  .mic { width:78px; height:78px; border-radius:50%; font-size:30px; margin:20px auto; display:block;
+    background:radial-gradient(circle at 50% 40%, #ffd9a0, #ff8a1e); box-shadow:0 0 30px rgba(255,154,61,.6); }
+  .mic.rec { animation:rec 1s infinite; background:radial-gradient(circle at 50% 40%, #ffe9cc, #ff8a1e); box-shadow:0 0 40px rgba(255,138,30,.8); }
+  @keyframes rec { 50% { transform:scale(1.12); } }
+  .hint { text-align:center; font-size:10px; color:#8a6a4a; letter-spacing:2px; }
+  .cmd-row { display:flex; gap:8px; margin-top:14px; }
+  .cmd-row input { flex:1; background:rgba(12,6,1,.85); border:1px solid rgba(255,154,61,.3); color:#cfe7ff;
+    padding:10px; font-size:14px; border-radius:8px; outline:none; }
+  .status-box { margin-top:14px; border:1px solid rgba(255,154,61,.15); border-radius:10px; padding:10px 12px;
+    background:rgba(28,12,2,.5); font-size:12px; }
+  .status-box b { color:#ffa53d; }
+  .log { margin-top:12px; }
+  .line { padding:8px 10px; border-radius:10px; margin:6px 0; font-size:13px; line-height:1.5; }
+  .line.user { background:rgba(255,90,10,.18); text-align:right; color:#ffd9a0; }
+  .line.jarvis { background:rgba(255,154,61,.08); color:#ffe3c2; }
+  .action-card { border:1px solid rgba(255,154,61,.4); text-align:center; padding:12px !important; }
+  .action-card button { margin-top:8px; border-radius:20px; padding:8px 18px; }
+  .footer { text-align:center; font-size:9px; color:#4a3826; padding:14px; letter-spacing:2px; }
+  .quick { display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .quick button { flex:1; min-width:calc(50% - 8px); padding:12px 8px; font-size:12px; }
+  .unlock-overlay { position:fixed; inset:0; z-index:99; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.84); backdrop-filter:blur(4px); }
+  .unlock-overlay[hidden] { display:none; }
+  .unlock-card { text-align:center; border:1px solid rgba(255,154,61,.6); border-radius:16px; padding:26px 30px;
+    background:rgba(28,12,2,.92); box-shadow:0 0 40px rgba(255,138,30,.5); animation:unlockPulse 1.2s infinite; }
+  @keyframes unlockPulse { 50% { box-shadow:0 0 70px rgba(255,138,30,.9); transform:scale(1.03); } }
+  .unlock-icon { font-size:52px; animation:unlockBounce 1s infinite; }
+  @keyframes unlockBounce { 50% { transform:translateY(-8px); } }
+  .unlock-title { font-size:15px; letter-spacing:2px; color:#ffd9a0; margin-top:10px; }
+  .unlock-sub { font-size:10px; color:#8a6a4a; margin:6px 0 14px; letter-spacing:1px; }
+  .unlock-card button { border-radius:20px; padding:12px 26px; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>SPAGASUS <b>JARVIS</b></h1>
+    <div class="sub">MOBILE COMPANION · SG SATURN CORE</div>
+    <div class="chip" id="conn">○ DISCONNECTED</div>
+  </div>
+
+  <div class="body">
+    <div class="pair">
+      <input id="token" placeholder="Pairing token (from .env)" type="password">
+      <button id="pair">PAIR</button>
+    </div>
+
+    <div class="quick">
+      <button data-cmd="what's on my screen">👁️ VISION</button>
+      <button data-cmd="pause music">⏯️ PLAY/PAUSE</button>
+      <button data-cmd="next track">⏭️ NEXT</button>
+      <button data-cmd="mute pc">🔇 MUTE</button>
+      <button data-cmd="minimize all windows">🖥️ DESK</button>
+      <button data-cmd="set brightness to 80%">☀️ 80%</button>
+      <button data-cmd="set a timer for 5 minutes">⏱️ 5m TIMER</button>
+      <button data-cmd="open whatsapp">💬 WHATSAPP</button>
+      <button data-cmd="lock pc">🔒 LOCK PC</button>
+    </div>
+
+    <button class="mic" id="mic">🎤</button>
+    <div class="hint">HOLD TO TALK · RELEASE TO SEND</div>
+
+    <div class="cmd-row">
+      <input id="cmd" placeholder="Or type a command…" autocomplete="off">
+      <button id="send">SEND</button>
+    </div>
+
+    <div class="status-box" id="status">Waiting for JARVIS…</div>
+    <div class="log" id="log"></div>
+  </div>
+  <div class="footer">SG SATURN · SECURE PAIRING · v1.0</div>
+
+  <div class="unlock-overlay" id="unlockOv" hidden>
+    <div class="unlock-card">
+      <div class="unlock-icon">🔓</div>
+      <div class="unlock-title">JARVIS SAYS: UNLOCK ME, BOSS</div>
+      <div class="unlock-sub">Tap below to confirm you're awake</div>
+      <button id="unlockOk">I'M AWAKE ✅</button>
+    </div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+let ws = null, token = '', listening = false, wakeLock = null;
+let retryDelay = 1000, batteryTimer = null, heartbeat = null, unlockNag = null, unlockAcked = false;
+
+// HTTP heartbeat: keeps the device 'online' even while the WebSocket is down
+// (screen locked, Wi-Fi blip, backgrounded tab) - the server refreshes
+// last_seen from these pings, so the dashboard never sees it drop.
+function httpPing() {
+  if (!token) return;
+  const sendB = bat => {
+    fetch('/api/ping?token=' + encodeURIComponent(token) + '&battery=' + bat).catch(() => {});
+  };
+  if (navigator.getBattery) {
+    navigator.getBattery().then(b => sendB(Math.round(b.level * 100))).catch(() => sendB(-1));
+  } else sendB(-1);
+}
+
+// keep the screen awake while paired - the companion stays alive and online
+async function requestWake() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    }
+  } catch (err) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    requestWake();
+    // coming back to the tab: reconnect right away if the socket died
+    if (!(ws && ws.readyState === 1) && token) connect();
+  }
+});
+
+// maximum-attention alarm: vibrate + beep + notification (a web page can't
+// bypass the lock screen - only your fingerprint/PIN can - but this makes
+// sure you notice the request the moment you're near the phone)
+function attention() {
+  try { if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 700]); } catch (e) {}
+  try {
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = actx.createOscillator(), g = actx.createGain();
+    osc.connect(g); g.connect(actx.destination);
+    osc.type = 'square'; osc.frequency.value = 880;
+    g.gain.setValueAtTime(0.18, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 1.3);
+    osc.start(); osc.stop(actx.currentTime + 1.3);
+  } catch (e) {}
+  try {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('🔓 SPAGASUS JARVIS', { body: 'Unlock request - please unlock this device.', tag: 'jarvis-unlock' });
+    }
+  } catch (e) {}
+}
+
+function log(role, text) {
+  const d = document.createElement('div');
+  d.className = 'line ' + role;
+  d.textContent = (role === 'user' ? 'YOU · ' : 'JARVIS · ') + text;
+  $('log').appendChild(d);
+  $('log').scrollTop = $('log').scrollHeight;
+  return d;
+}
+
+// ---- progressive reply reveal (phone) ---------------------------------
+// The reply text appears on the phone at the same speed the voice speaks
+// it: no word highlighting - the text is simply revealed progressively,
+// paced by the real per-word timings edge-tts provides, or an estimate
+// until the audio arrives.
+let stream = null, streamTimer = null;
+function startRevealTimer() { if (!streamTimer) streamTimer = setInterval(revealTick, 100); }
+function stopRevealTimer() { if (streamTimer) { clearInterval(streamTimer); streamTimer = null; } }
+function revealTick() {
+  if (!stream) { stopRevealTimer(); return; }
+  const full = stream.full || '';
+  if (!full) return;
+  let shown = 0;
+  if (stream.words && stream.words.length && stream.audioStart != null) {
+    const elapsed = performance.now() - stream.audioStart;
+    let n = 0;
+    for (let i = 0; i < stream.words.length; i++) {
+      if (stream.words[i].t <= elapsed) n = i + 1; else break;
+    }
+    shown = Math.round(full.length * n / stream.words.length);
+  } else {
+    shown = Math.floor((performance.now() - stream.t0) / 66.7);   // ~15 chars/sec estimate
+  }
+  stream.line.textContent = 'JARVIS · ' + full.slice(0, Math.min(shown, full.length));
+  if (shown >= full.length) finalizeStream();
+}
+function finalizeStream() {
+  stopRevealTimer();
+  if (stream) {
+    stream.line.textContent = 'JARVIS · ' + (stream.full || '');
+    stream = null;
+  }
+}
+function logStreamed(role, text) {
+  // the text may arrive twice (live WS push + the fetch response) - reuse
+  // the same line instead of duplicating it
+  if (stream && stream.full === text) return stream.line;
+  if (stream) finalizeStream();
+  const d = document.createElement('div');
+  d.className = 'line ' + role;
+  $('log').appendChild(d);
+  $('log').scrollTop = $('log').scrollHeight;
+  stream = { line: d, full: text, words: null, audioStart: null, t0: performance.now() };
+  startRevealTimer();
+  return d;
+}
+
+function setConn(on) {
+  const c = $('conn');
+  c.textContent = on ? '● CONNECTED' : '○ DISCONNECTED';
+  c.className = 'chip ' + (on ? 'conn' : 'disc');
+}
+
+function batteryInfo() {
+  if (navigator.getBattery) {
+    navigator.getBattery().then(b => {
+      const payload = { type: 'ping', battery: Math.round(b.level * 100) };
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify(payload));
+      const st = $('status');
+      st.innerHTML = '<b>JARVIS</b> · ' + (b.charging ? 'charging' : 'battery') + ' ' + Math.round(b.level * 100) + '%';
+    });
+  }
+}
+
+function connect() {
+  if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} }
+  const url = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host +
+              '/ws?token=' + encodeURIComponent(token) + '&name=Android%20Phone';
+  ws = new WebSocket(url);
+  ws.onopen = () => {
+    setConn(true); retryDelay = 1000; requestWake();
+    batteryInfo();
+    if (!batteryTimer) batteryTimer = setInterval(batteryInfo, 15000);
+    if (!heartbeat) heartbeat = setInterval(httpPing, 20000);
+  };
+  // never stay dead: any drop (Wi-Fi blip, background suspension) reconnects
+  // automatically with backoff, and HTTP pings bridge the gap meanwhile
+  ws.onclose = () => {
+    setConn(false);
+    httpPing();
+    retryDelay = Math.min(retryDelay * 1.7, 15000);
+    setTimeout(connect, retryDelay);
+  };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  ws.onmessage = e => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'reply') { if (d.stream) logStreamed('jarvis', d.reply); else log('jarvis', d.reply); }
+      if (d.type === 'state' && d.status) {
+        $('status').innerHTML = '<b>JARVIS</b> · ' + d.status +
+          (d.task ? ' · ' + d.task : '') +
+          ' · CPU ' + (d.stats ? d.stats.cpu : '?') + '% · RAM ' + (d.stats ? d.stats.ram : '?') + '%';
+      }
+      if (d.type === 'action') showAction(d);
+    } catch (err) {}
+  };
+
+  // actions pushed from the desktop (play song / unlock request)
+  function showAction(d) {
+    if (d.action === 'play_song') {
+      const card = document.createElement('div');
+      card.className = 'line jarvis action-card';
+      card.innerHTML = '🎵 JARVIS wants to play <b>' + (d.song || 'a song') + '</b>' +
+        ' <button onclick="window.open(\'' + d.url + '\',\'_blank\')">PLAY</button>';
+      $('log').appendChild(card);
+      $('log').scrollTop = $('log').scrollHeight;
+    } else if (d.action === 'unlock') {
+      unlockAcked = false;
+      attention();
+      requestWake();
+      const ov = $('unlockOv');
+      if (ov) ov.hidden = false;
+      // keep nagging (vibrate + beep) every 5s until the boss acknowledges,
+      // so a missed first alert isn't the end - it re-alerts on the lock screen
+      if (unlockNag) clearInterval(unlockNag);
+      unlockNag = setInterval(() => { if (!unlockAcked) attention(); }, 5000);
+      setTimeout(() => { if (unlockNag) { clearInterval(unlockNag); unlockNag = null; } }, 45000);
+      const card = document.createElement('div');
+      card.className = 'line jarvis action-card';
+      card.innerHTML = '🔓 JARVIS: unlock request received - please unlock this device.';
+      $('log').appendChild(card);
+      $('log').scrollTop = $('log').scrollHeight;
+    }
+  }
+}
+
+$('pair').addEventListener('click', () => {
+  token = $('token').value.trim();
+  if (!token) return;
+  try { localStorage.setItem('jarvisToken', token); } catch (e) {}
+  connect();
+  log('jarvis', 'Pairing with token…');
+  if ('Notification' in window && Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch (e) {}
+  }
+  requestWake();
+});
+
+function send(text) {
+  if (!text) return;
+  log('user', text);
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'command', text }));
+  else {
+    fetch('/api/command?token=' + encodeURIComponent(token), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    }).then(r => r.json()).then(d => d.reply && log('jarvis', d.reply)).catch(() => {});
+  }
+}
+
+$('send').addEventListener('click', () => { send($('cmd').value.trim()); $('cmd').value = ''; });
+document.querySelectorAll('.quick button').forEach(b => b.addEventListener('click', () => send(b.dataset.cmd)));
+$('unlockOk').addEventListener('click', () => {
+  $('unlockOv').hidden = true;
+  unlockAcked = true;
+  if (unlockNag) { clearInterval(unlockNag); unlockNag = null; }
+});
+$('cmd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { send($('cmd').value.trim()); $('cmd').value = ''; }
+});
+
+// voice input: the Android WebView has NO Web Speech API (webkitSpeechRecognition
+// doesn't exist there), so the old mic button never heard anything on the phone.
+// Instead we record with the Web Audio API, downsample to 16 kHz mono int16, and
+// POST the raw PCM to the PC - /api/voice transcribes it (Parakeet/whisper/Google),
+// runs the command, and returns the reply + MP3 audio to play back on the phone.
+const micBtn = $('mic');
+const STT_RATE = 16000;
+let recStream = null, recCtx = null, recSrc = null, recProc = null, recFloats = [];
+
+function stopRecording() {
+  if (recProc) { try { recProc.disconnect(); } catch (e) {} }
+  if (recSrc) { try { recSrc.disconnect(); } catch (e) {} }
+  if (recCtx) { try { recCtx.close(); } catch (e) {} }
+  if (recStream) { try { recStream.getTracks().forEach(t => t.stop()); } catch (e) {} }
+  recProc = null; recSrc = null; recCtx = null; recStream = null;
+  micBtn.classList.remove('rec');
+  listening = false;
+}
+
+async function startRecording() {
+  if (!token) { log('jarvis', 'Pair with JARVIS first, then talk.'); return; }
+  if (recProc) return;   // already recording
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      log('jarvis', 'Voice needs the microphone permission - grant RECORD_AUDIO to Spagasus.');
+      return;
+    }
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    log('jarvis', 'Microphone blocked - grant RECORD_AUDIO and try again.');
+    return;
+  }
+  recFloats = [];
+  try {
+    recCtx = new (window.AudioContext || window.webkitAudioContext)();
+    recSrc = recCtx.createMediaStreamSource(recStream);
+    recProc = recCtx.createScriptProcessor(4096, 1, 1);
+    recProc.onaudioprocess = e => {
+      const data = e.inputBuffer.getChannelData(0);   // float32 at device rate
+      const ratio = recCtx.sampleRate / STT_RATE;     // e.g. 48000/16000 = 3
+      const n = Math.floor(data.length / ratio);
+      for (let i = 0; i < n; i++) {
+        const a = Math.floor(i * ratio);
+        const b = Math.max(a + 1, Math.floor((i + 1) * ratio));
+        let s = 0;
+        for (let j = a; j < b; j++) s += data[j];
+        recFloats.push(s / (b - a));                  // box-filter decimation
+      }
+    };
+    // keep the audio graph alive without making the mic audible
+    const mute = recCtx.createGain();
+    mute.gain.value = 0;
+    recSrc.connect(recProc);
+    recProc.connect(mute);
+    mute.connect(recCtx.destination);
+    micBtn.classList.add('rec');
+    listening = true;
+  } catch (err) {
+    stopRecording();
+    log('jarvis', 'Could not start recording: ' + String(err).slice(0, 80));
+  }
+}
+
+function finishRecording() {
+  stopRecording();
+  if (recFloats.length < STT_RATE * 0.3) {   // under ~0.3 s: too short to be speech
+    recFloats = [];
+    return;
+  }
+  const pcm = new Int16Array(recFloats.length);
+  for (let i = 0; i < recFloats.length; i++) {
+    const f = Math.max(-1, Math.min(1, recFloats[i]));
+    pcm[i] = f < 0 ? f * 0x8000 : f * 0x7FFF;
+  }
+  recFloats = [];
+  log('user', '🎤 …');
+  fetch('/api/voice?token=' + encodeURIComponent(token), {
+    method: 'POST',
+    body: pcm.buffer
+  }).then(r => r.json()).then(d => {
+    if (d && d.reply) {
+      const el = logStreamed('jarvis', d.reply);
+      if (d.audio) {   // play the PC's neural reply aloud on the phone, and
+                       // pace the text reveal with the real per-word timings
+        try {
+          const au = new Audio('data:audio/mpeg;base64,' + d.audio);
+          au.onplaying = () => {
+            if (stream && stream.full === d.reply) {
+              stream.words = d.words || null;
+              stream.audioStart = performance.now();
+            }
+          };
+          au.onended = () => { if (stream && stream.full === d.reply) finalizeStream(); };
+          au.play().catch(() => {});
+        } catch (e) {}
+      }
+    } else {
+      log('jarvis', "I didn't catch that - try again.");
+    }
+  }).catch(() => {
+    log('jarvis', 'Voice failed - is the PC reachable?');
+  });
+}
+
+micBtn.addEventListener('pointerdown', startRecording);
+micBtn.addEventListener('pointerup', finishRecording);
+micBtn.addEventListener('pointerleave', finishRecording);
+micBtn.addEventListener('pointercancel', finishRecording);
+
+// auto-pair: a saved token (or ?token=) connects by itself so the native app
+// opens straight into the paired JARVIS companion - no typing on every launch.
+(function () {
+  try {
+    const qp = new URLSearchParams(window.location.search);
+    const fromUrl = (qp.get('token') || '').trim();
+    if (fromUrl) localStorage.setItem('jarvisToken', fromUrl);
+  } catch (e) {}
+  let saved = null;
+  try { saved = localStorage.getItem('jarvisToken'); } catch (e) {}
+  if (!saved || !saved.trim()) return;
+  token = saved.trim();
+  $('token').value = token;
+  connect();
+  log('jarvis', 'Pairing with saved token…');
+  if ('Notification' in window && Notification.permission === 'default') {
+    try { Notification.requestPermission(); } catch (e) {}
+  }
+  requestWake();
+})();
+</script>
+</body>
+</html>

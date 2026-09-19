@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPAGASUS JARVIS — AI Keys</title>
+<style>
+  :root{
+    --bg:#05070c; --panel:#0c1220; --line:#1c2740; --acc:#3ddcff; --acc2:#7c5cff;
+    --txt:#dfe8ff; --dim:#7b8bb0; --ok:#3ddc8f; --err:#ff5d7a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; background:
+      radial-gradient(circle at 20% 0%, #101a33 0%, transparent 45%),
+      radial-gradient(circle at 90% 20%, #1a1030 0%, transparent 40%),
+      var(--bg);
+    color:var(--txt); font:15px/1.5 "Segoe UI", system-ui, sans-serif;
+    display:flex; justify-content:center; padding:36px 16px 80px;
+  }
+  .wrap{width:100%; max-width:640px}
+  h1{font-size:20px; letter-spacing:.08em; margin:0 0 4px; color:#fff}
+  h1 b{color:var(--acc)}
+  .sub{color:var(--dim); font-size:13px; margin-bottom:26px}
+  .card{
+    background:linear-gradient(180deg,var(--panel),#080b14);
+    border:1px solid var(--line); border-radius:14px; padding:22px;
+    margin-bottom:18px; box-shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  .card h2{font-size:13px; letter-spacing:.1em; color:var(--dim); margin:0 0 16px; text-transform:uppercase}
+  .providers{display:grid; grid-template-columns:repeat(auto-fit, minmax(100px, 1fr)); gap:8px; margin-bottom:18px}
+  .prov{
+    border:1px solid var(--line); border-radius:10px; padding:12px 6px; text-align:center;
+    cursor:pointer; background:#0a0f1c; transition:.15s; font-size:12.5px; color:var(--dim);
+  }
+  .prov:hover{border-color:var(--acc)}
+  .prov.active{border-color:var(--acc); color:#fff; background:#0e1830; box-shadow:0 0 0 1px var(--acc) inset}
+  .prov .emoji{font-size:20px; display:block; margin-bottom:4px}
+  label{display:block; font-size:12px; color:var(--dim); margin:14px 0 6px; letter-spacing:.03em}
+  input[type=text], input[type=password]{
+    width:100%; background:#080c16; border:1px solid var(--line); border-radius:9px;
+    padding:11px 12px; color:#fff; font-size:14px; outline:none; transition:.15s;
+  }
+  input:focus{border-color:var(--acc)}
+  .row{display:flex; gap:12px}
+  .row > div{flex:1}
+  .keyrow{position:relative}
+  .toggle{
+    position:absolute; right:10px; top:38px; background:none; border:0; color:var(--dim);
+    cursor:pointer; font-size:12px;
+  }
+  .btn{
+    margin-top:20px; width:100%; padding:13px; border-radius:10px; border:0; cursor:pointer;
+    font-weight:600; letter-spacing:.04em; font-size:14px;
+    background:linear-gradient(135deg,var(--acc),var(--acc2)); color:#04101c;
+    transition:.15s; text-transform:uppercase;
+  }
+  .btn:hover{filter:brightness(1.08)}
+  .btn:disabled{opacity:.5; cursor:not-allowed; filter:none}
+  .msg{margin-top:14px; padding:11px 13px; border-radius:9px; font-size:13px; display:none}
+  .msg.ok{display:block; background:rgba(61,220,143,.1); border:1px solid rgba(61,220,143,.35); color:var(--ok)}
+  .msg.err{display:block; background:rgba(255,93,122,.1); border:1px solid rgba(255,93,122,.35); color:var(--err)}
+  .status{display:flex; align-items:center; gap:10px; font-size:13px; color:var(--dim)}
+  .dot{width:8px; height:8px; border-radius:50%; background:#444}
+  .dot.on{background:var(--ok); box-shadow:0 0 8px var(--ok)}
+  .hint{font-size:11.5px; color:var(--dim); margin-top:8px; line-height:1.5}
+  a{color:var(--acc)}
+  .back{display:inline-block; margin-bottom:18px; color:var(--dim); text-decoration:none; font-size:13px}
+  .back:hover{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">← back to dashboard</a>
+  <h1>SPAGASUS <b>JARVIS</b> · AI & Voice Keys</h1>
+  <div class="sub">Connect LLM providers or Wispr Flow voice dictation to power JARVIS with high-speed natural speech.</div>
+
+  <div class="card">
+    <h2>Current status</h2>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">checking…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Choose a provider</h2>
+    <div class="providers" id="providers">
+      <div class="prov" data-p="gemini"><span class="emoji">✨</span>Gemini</div>
+      <div class="prov" data-p="grok"><span class="emoji">🤖</span>Grok</div>
+      <div class="prov" data-p="openai"><span class="emoji">🧠</span>OpenAI</div>
+      <div class="prov" data-p="wispr"><span class="emoji">🌊</span>Wispr Flow</div>
+      <div class="prov" data-p="custom"><span class="emoji">⚙</span>Custom</div>
+    </div>
+
+    <label for="apikey">API key</label>
+    <div class="keyrow">
+      <input type="password" id="apikey" placeholder="Paste your API key…" autocomplete="off">
+      <button class="toggle" id="toggleKey" type="button">show</button>
+    </div>
+
+    <div class="row" id="customRow" style="display:none">
+      <div>
+        <label for="baseurl">Base URL</label>
+        <input type="text" id="baseurl" placeholder="https://api.example.com/v1">
+      </div>
+    </div>
+    <label for="model">Model <span style="opacity:.6">(optional — default filled in)</span></label>
+    <input type="text" id="model" placeholder="model name">
+
+    <button class="btn" id="activateBtn">Activate</button>
+    <div class="msg" id="msg"></div>
+    <div class="hint">Get keys: <a href="https://aistudio.google.com/apikey" target="_blank">Gemini</a> ·
+      <a href="https://console.x.ai" target="_blank">Grok</a> ·
+      <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a>.
+      Key is verified with a live test call before saving — nothing bad gets written to disk.
+      JARVIS restarts itself (~5s) to pick it up.</div>
+  </div>
+</div>
+
+<script>
+const presets = {
+  gemini: { model: "gemini-2.5-flash" },
+  grok:   { model: "grok-4-fast" },
+  openai: { model: "gpt-4o-mini" },
+  wispr:  { model: "whisper-1" },
+  custom: { model: "" },
+};
+let provider = "gemini";
+const provEls = document.querySelectorAll(".prov");
+const modelEl = document.getElementById("model");
+const baseEl = document.getElementById("baseurl");
+const customRow = document.getElementById("customRow");
+const keyEl = document.getElementById("apikey");
+const msgEl = document.getElementById("msg");
+const btn = document.getElementById("activateBtn");
+
+function selectProvider(p) {
+  provider = p;
+  provEls.forEach(e => e.classList.toggle("active", e.dataset.p === p));
+  customRow.style.display = p === "custom" ? "flex" : "none";
+  modelEl.placeholder = presets[p].model || "model name";
+}
+provEls.forEach(e => e.addEventListener("click", () => selectProvider(e.dataset.p)));
+selectProvider("gemini");
+
+document.getElementById("toggleKey").addEventListener("click", () => {
+  const t = keyEl.type === "password" ? "text" : "password";
+  keyEl.type = t;
+  document.getElementById("toggleKey").textContent = t === "password" ? "show" : "hide";
+});
+
+async function loadStatus() {
+  try {
+    const r = await fetch("/api/keys/status");
+    const d = await r.json();
+    const dot = document.getElementById("dot");
+    const txt = document.getElementById("statusText");
+    if (d.configured) {
+      dot.classList.add("on");
+      txt.textContent = `Active — ${d.provider} · ${d.model} · key ${d.masked_key}`;
+    } else {
+      txt.textContent = "No key configured — JARVIS is running on built-in rules only.";
+    }
+  } catch (e) {
+    document.getElementById("statusText").textContent = "Could not reach JARVIS backend.";
+  }
+}
+loadStatus();
+
+btn.addEventListener("click", async () => {
+  const api_key = keyEl.value.trim();
+  msgEl.className = "msg";
+  if (!api_key) {
+    msgEl.textContent = "Enter an API key first.";
+    msgEl.classList.add("err");
+    return;
+  }
+  if (provider === "custom" && !baseEl.value.trim()) {
+    msgEl.textContent = "Custom provider needs a base URL.";
+    msgEl.classList.add("err");
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "Verifying key…";
+  msgEl.className = "msg";
+  try {
+    const r = await fetch("/api/keys/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider,
+        api_key,
+        model: modelEl.value.trim() || undefined,
+        base_url: provider === "custom" ? baseEl.value.trim() : undefined,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "activation failed");
+    msgEl.textContent = "✓ " + d.message;
+    msgEl.classList.add("ok");
+    keyEl.value = "";
+    btn.textContent = "Activate";
+    setTimeout(loadStatus, 6000);
+  } catch (e) {
+    msgEl.textContent = "✕ " + e.message;
+    msgEl.classList.add("err");
+    btn.textContent = "Activate";
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

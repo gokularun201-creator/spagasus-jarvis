@@ -1,0 +1,19 @@
+=====================================================
+SPAGASUS JARVIS - STANDALONE PORTABLE EDITION
+=====================================================
+
+HOW TO RUN ON ANY COMPUTER:
+1. Double-click "SPAGASUS JARVIS.exe"
+   - No Python installation is needed!
+   - All models, dependencies, and engines are included.
+   - The app will automatically launch in a clean standalone window.
+
+OPTIONAL:
+- Double-click "Create_Desktop_Shortcut.vbs" to put a shortcut
+  directly on your Desktop.
+- You can also run "start_spagasus.bat" to view the console.
+
+MOBILE COMPANION:
+- Pair your Android phone at http://<this-pc-ip>:8790/m using the
+  PHONE_TOKEN in .env (default: spagasus-local-dev-token).
+=====================================================
