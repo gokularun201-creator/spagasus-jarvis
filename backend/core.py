@@ -120,6 +120,8 @@ def _query_chat_completions(base_url: str, model: str, api_key: str | None, mess
         "messages": messages,
         "max_tokens": 400,
     }
+    if "11434" in base_url or "localhost" in base_url or "127.0.0.1" in base_url:
+        payload["keep_alive"] = "24h"
     if stream:
         payload["stream"] = True
     req = urllib.request.Request(
@@ -139,7 +141,7 @@ def llm_chat(history: list[dict], user_text: str) -> str | None:
     # 1. Prioritize Local Gemma 4 (Ollama) if enabled
     if LOCAL_LLM_ENABLED:
         try:
-            with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=90) as resp:
+            with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
                 msg = (data.get("choices") or [{}])[0].get("message", {})
                 content = (msg.get("content") or msg.get("reasoning") or "").strip()
@@ -175,7 +177,7 @@ def llm_chat_stream(history: list[dict], user_text: str):
         # 1. Try local Gemma 4 (Ollama)
         if LOCAL_LLM_ENABLED:
             try:
-                resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=90)
+                resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=120)
                 yielded_any = False
                 with resp:
                     for raw in resp:
