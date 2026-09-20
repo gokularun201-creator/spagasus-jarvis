@@ -74,6 +74,16 @@ LLM_API_KEY = _env("LLM_API_KEY")
 LLM_BASE_URL = _env("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL = _env("LLM_MODEL", "gpt-4o-mini")
 
+# --- Local AI (Ollama / Gemma 4 12B) --------------------------------
+# When LOCAL_LLM_ENABLED is True, queries are routed locally to Gemma
+# first. If Ollama is offline or busy, it gracefully falls back to the
+# cloud LLM.
+LOCAL_LLM_ENABLED = _env("LOCAL_LLM_ENABLED", "1") in ("1", "true", "yes", "on")
+LOCAL_LLM_BASE_URL = _env("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+LOCAL_LLM_MODEL = _env("LOCAL_LLM_MODEL", "gemma4:12b")
+LOCAL_LLM_FALLBACK = _env("LOCAL_LLM_FALLBACK", "1") in ("1", "true", "yes", "on")
+
+
 # Vision: POST a screenshot PNG to this URL, expects {"description": "..."}
 VISION_API_URL = _env("VISION_API_URL")
 

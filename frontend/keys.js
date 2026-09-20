@@ -1,5 +1,6 @@
 (function () {
   const presets = {
+    gemma:  { model: "gemma4:12b", base: "http://127.0.0.1:11434/v1" },
     gemini: { model: "gemini-2.5-flash" },
     grok:   { model: "grok-4-fast" },
     openai: { model: "gpt-4o-mini" },
@@ -27,6 +28,15 @@
     provEls.forEach(e => e.classList.toggle('active', e.dataset.p === p));
     customRow.style.display = p === 'custom' ? 'block' : 'none';
     modelEl.placeholder = presets[p].model || 'model name';
+    if (p === 'gemma') {
+      if (!keyEl.value || keyEl.value === 'ollama-local') {
+        keyEl.value = 'ollama-local';
+      }
+      keyEl.placeholder = 'Local engine (no API key needed)';
+    } else {
+      if (keyEl.value === 'ollama-local') keyEl.value = '';
+      keyEl.placeholder = 'Paste your API key…';
+    }
   }
   provEls.forEach(e => e.addEventListener('click', () => selectProvider(e.dataset.p)));
 
@@ -40,9 +50,23 @@
     try {
       const r = await fetch('/api/keys/status');
       const d = await r.json();
+      const badge = document.getElementById('engineBadge');
+      if (badge) {
+        if (d.provider === 'gemma' || d.local_llm_enabled) {
+          badge.textContent = '💎 GEMMA 4 LOCAL';
+          badge.style.color = '#a855f7';
+        } else {
+          badge.textContent = '✨ ' + (d.provider || 'AI').toUpperCase();
+          badge.style.color = '#38bdf8';
+        }
+      }
       if (d.configured) {
         dotEl.classList.add('on');
-        statusEl.textContent = `Active — ${d.provider} · ${d.model} · key ${d.masked_key}`;
+        if (d.provider === 'gemma') {
+          statusEl.textContent = `Active — 💎 Gemma 4 Local (Ollama: ${d.ollama && d.ollama.running ? 'online' : 'ready'}) · ${d.model}`;
+        } else {
+          statusEl.textContent = `Active — ${d.provider} · ${d.model} · key ${d.masked_key}`;
+        }
       } else {
         dotEl.classList.remove('on');
         statusEl.textContent = 'No key yet — JARVIS runs on built-in rules only.';
@@ -54,8 +78,7 @@
 
   function openModal() {
     overlay.classList.add('open');
-    selectProvider('gemini');
-    keyEl.value = '';
+    selectProvider(provider || 'gemma');
     msgEl.className = 'keys-msg';
     refreshStatus();
   }
@@ -66,9 +89,12 @@
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
 
   actBtn.addEventListener('click', async () => {
-    const api_key = keyEl.value.trim();
+    let api_key = keyEl.value.trim();
+    if (provider === 'gemma' && !api_key) {
+      api_key = 'ollama-local';
+    }
     msgEl.className = 'keys-msg';
-    if (!api_key) {
+    if (!api_key && provider !== 'gemma') {
       msgEl.textContent = 'Enter an API key first.';
       msgEl.classList.add('err');
       return;
@@ -79,7 +105,7 @@
       return;
     }
     actBtn.disabled = true;
-    actBtn.textContent = 'VERIFYING…';
+    actBtn.textContent = 'ACTIVATING…';
     try {
       const r = await fetch('/api/keys/activate', {
         method: 'POST',
@@ -106,4 +132,7 @@
       actBtn.disabled = false;
     }
   });
+
+  // Check and display active engine badge immediately on load
+  refreshStatus();
 })();

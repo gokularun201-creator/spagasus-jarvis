@@ -268,7 +268,10 @@ async def api_shutdown() -> dict:
 # ---------------------------------------------------------------------
 # AI provider keys (Gemini / Grok / OpenAI / custom) - dashboard UI at /keys
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
 PROVIDER_PRESETS = {
+    "gemma":  {"base_url": "http://127.0.0.1:11434/v1", "model": "gemma4:12b",
+               "label": "Gemma 4 12B (Local)"},
     "gemini": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                "model": "gemini-2.5-flash", "label": "Google Gemini"},
     "grok":   {"base_url": "https://api.x.ai/v1", "model": "grok-4-fast",
@@ -282,7 +285,7 @@ PROVIDER_PRESETS = {
 
 class KeyActivateIn(BaseModel):
     provider: str
-    api_key: str
+    api_key: str | None = ""
     model: str | None = None
     base_url: str | None = None
 
@@ -313,13 +316,15 @@ def _test_llm_key(base_url: str, api_key: str, model: str) -> tuple[bool, str]:
     it's saved and the server restarts on it."""
     import urllib.error
     try:
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(
             f"{base_url.rstrip('/')}/chat/completions",
             data=json.dumps({"model": model,
                              "messages": [{"role": "user", "content": "hi"}],
                              "max_tokens": 5}).encode(),
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {api_key}"})
+            headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
             json.loads(resp.read().decode("utf-8", "replace"))
         return True, "ok"
@@ -328,6 +333,19 @@ def _test_llm_key(base_url: str, api_key: str, model: str) -> tuple[bool, str]:
         return False, f"HTTP {exc.code}: {body}"
     except Exception as exc:  # noqa: BLE001
         return False, str(exc)
+
+
+@app.get("/api/ollama/status")
+def api_ollama_status() -> dict:
+    from . import config
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+            models = [m.get("name") for m in data.get("models", [])]
+            return {"running": True, "models": models, "active_model": config.LOCAL_LLM_MODEL}
+    except Exception as exc:  # noqa: BLE001
+        return {"running": False, "error": str(exc), "active_model": config.LOCAL_LLM_MODEL}
 
 
 @app.get("/api/flow/status")
@@ -346,19 +364,28 @@ def api_keys_status() -> dict:
         if preset["base_url"].rstrip("/") in (config.LLM_BASE_URL or "").rstrip("/"):
             provider = name
             break
-    return {"configured": bool(key), "provider": provider,
-            "base_url": config.LLM_BASE_URL, "model": config.LLM_MODEL,
-            "masked_key": masked, "presets": PROVIDER_PRESETS,
-            "wispr_flow": config.WISPR_FLOW_ENABLED,
-            "wispr_key_set": bool(config.WISPR_FLOW_API_KEY)}
+
+    ollama_info = api_ollama_status()
+
+    return {
+        "configured": bool(key) or (provider == "gemma" and ollama_info["running"]),
+        "provider": provider,
+        "base_url": config.LLM_BASE_URL,
+        "model": config.LLM_MODEL,
+        "masked_key": "(local engine)" if provider == "gemma" else masked,
+        "presets": PROVIDER_PRESETS,
+        "wispr_flow": config.WISPR_FLOW_ENABLED,
+        "wispr_key_set": bool(config.WISPR_FLOW_API_KEY),
+        "local_llm_enabled": config.LOCAL_LLM_ENABLED,
+        "local_llm_model": config.LOCAL_LLM_MODEL,
+        "ollama": ollama_info,
+    }
 
 
 @app.post("/api/keys/activate")
 def api_keys_activate(body: KeyActivateIn) -> dict:
     provider = (body.provider or "").strip().lower()
     api_key = (body.api_key or "").strip()
-    if not api_key:
-        raise HTTPException(400, "API key required")
     preset = PROVIDER_PRESETS.get(provider)
     if preset:
         base_url = (body.base_url or preset["base_url"]).strip()
@@ -368,6 +395,33 @@ def api_keys_activate(body: KeyActivateIn) -> dict:
             raise HTTPException(400, "base_url required for a custom provider")
         base_url = body.base_url.strip()
         model = (body.model or "gpt-4o-mini").strip()
+
+    if provider == "gemma":
+        if not api_key:
+            api_key = "ollama-local"
+        _write_env_vars({
+            "LOCAL_LLM_ENABLED": "1",
+            "LOCAL_LLM_BASE_URL": base_url,
+            "LOCAL_LLM_MODEL": model,
+            "LOCAL_LLM_FALLBACK": "1",
+            "LLM_BASE_URL": base_url,
+            "LLM_MODEL": model,
+            "LLM_API_KEY": api_key,
+        })
+        def _restart_soon_gemma() -> None:
+            time.sleep(1.0)
+            os._exit(0)
+        threading.Thread(target=_restart_soon_gemma, daemon=True).start()
+        return {
+            "ok": True,
+            "provider": "gemma",
+            "base_url": base_url,
+            "model": model,
+            "message": f"Local {model} engine activated! JARVIS is applying it (~5s).",
+        }
+
+    if not api_key:
+        raise HTTPException(400, "API key required")
 
     if provider == "wispr":
         _write_env_vars({

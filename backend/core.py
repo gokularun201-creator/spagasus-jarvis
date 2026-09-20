@@ -18,7 +18,18 @@ import urllib.request
 import numpy as np
 
 from . import memory, tools, vision
-from .config import AUTOMATION, DATA_DIR, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, SAMPLE_RATE
+from .config import (
+    AUTOMATION,
+    DATA_DIR,
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
+    LOCAL_LLM_BASE_URL,
+    LOCAL_LLM_ENABLED,
+    LOCAL_LLM_FALLBACK,
+    LOCAL_LLM_MODEL,
+    SAMPLE_RATE,
+)
 from .speech import MicStream, Tts
 
 # words that follow "call/ring" but are NOT a contact name
@@ -85,61 +96,120 @@ def _map_role(role: str) -> str:
     return "assistant"
 
 
+def _query_chat_completions(base_url: str, model: str, api_key: str | None, messages: list[dict], stream: bool = False, timeout: int = 30):
+    """Dispatch an OpenAI-compatible chat completion request."""
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 300,
+    }
+    if stream:
+        payload["stream"] = True
+    req = urllib.request.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+    )
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
 def llm_chat(history: list[dict], user_text: str) -> str | None:
-    """OpenAI-compatible chat. Returns None when no key is configured."""
-    if not LLM_API_KEY:
-        return None
+    """Chat completions with Local Gemma 4 / Ollama prioritization and cloud fallback."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-8:]]
     messages.append({"role": "user", "content": user_text})
-    try:
-        req = urllib.request.Request(
-            f"{LLM_BASE_URL}/chat/completions",
-            data=json.dumps({"model": LLM_MODEL, "messages": messages,
-                             "max_tokens": 300}).encode(),
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {LLM_API_KEY}"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8", "replace"))
-        return data["choices"][0]["message"]["content"].strip()
-    except Exception as exc:  # noqa: BLE001
-        return f"(LLM unavailable: {exc})"
+
+    # 1. Prioritize Local Gemma 4 (Ollama) if enabled
+    if LOCAL_LLM_ENABLED:
+        try:
+            with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=12) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+                content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+                if content:
+                    return content
+        except Exception:
+            if not LOCAL_LLM_FALLBACK or not LLM_API_KEY:
+                pass
+
+    # 2. Cloud LLM (Gemini / OpenAI) fallback
+    if LLM_API_KEY:
+        try:
+            with _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=False, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+                return data["choices"][0]["message"]["content"].strip()
+        except Exception as exc:  # noqa: BLE001
+            return f"(LLM unavailable: {exc})"
+
+    return None
 
 
 def llm_chat_stream(history: list[dict], user_text: str):
-    """OpenAI-compatible chat with SSE streaming. Returns a generator of
-    text deltas, or None when no key is configured. Raising is deferred to
-    the generator so the caller can speak a graceful fallback."""
-    if not LLM_API_KEY:
+    """OpenAI-compatible chat with SSE streaming. Prioritizes local Gemma 4
+    with graceful cloud fallback."""
+    if not LOCAL_LLM_ENABLED and not LLM_API_KEY:
         return None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-8:]]
     messages.append({"role": "user", "content": user_text})
 
     def _stream():
-        req = urllib.request.Request(
-            f"{LLM_BASE_URL}/chat/completions",
-            data=json.dumps({"model": LLM_MODEL, "messages": messages,
-                             "max_tokens": 300, "stream": True}).encode(),
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {LLM_API_KEY}"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            for raw in resp:
-                line = raw.decode("utf-8", "replace").strip()
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                if not data:
-                    continue
-                try:
-                    obj = json.loads(data)
-                except ValueError:
-                    continue
-                delta = (obj.get("choices") or [{}])[0].get("delta") or {}
-                if delta.get("content"):
-                    yield delta["content"]
+        # 1. Try local Gemma 4 (Ollama)
+        if LOCAL_LLM_ENABLED:
+            try:
+                resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=15)
+                yielded_any = False
+                with resp:
+                    for raw in resp:
+                        line = raw.decode("utf-8", "replace").strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        if not data:
+                            continue
+                        try:
+                            obj = json.loads(data)
+                        except ValueError:
+                            continue
+                        delta = (obj.get("choices") or [{}])[0].get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            yielded_any = True
+                            yield content
+                if yielded_any:
+                    return
+            except Exception:
+                if not LOCAL_LLM_FALLBACK or not LLM_API_KEY:
+                    return
+
+        # 2. Fallback to Cloud LLM (Gemini / OpenAI)
+        if LLM_API_KEY:
+            try:
+                resp = _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=True, timeout=60)
+                with resp:
+                    for raw in resp:
+                        line = raw.decode("utf-8", "replace").strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        if not data:
+                            continue
+                        try:
+                            obj = json.loads(data)
+                        except ValueError:
+                            continue
+                        delta = (obj.get("choices") or [{}])[0].get("delta") or {}
+                        content = delta.get("content")
+                        if content:
+                            yield content
+            except Exception:
+                return
 
     return _stream()
 
