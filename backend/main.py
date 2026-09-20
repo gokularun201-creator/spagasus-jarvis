@@ -32,7 +32,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import memory, tools
+from . import memory, speech, tools
 from .config import BASE_DIR, EXIT_ON_CLOSE, PHONE_TOKEN, TTS_VOICE
 from .core import Core, STATUS_STANDBY, STATUS_THINKING
 from .routines import RoutineScheduler
@@ -145,6 +145,8 @@ def on_state_change(payload: dict) -> None:
     payload["level"] = core.mic.level
     payload["ambient"] = core.mic.ambient
     payload["media_busy"] = tools.media_is_playing()
+    payload["volume"] = speech.get_playback_volume()
+    payload["is_headset"] = speech.find_best_output_device() is not None
     broadcast(payload)
 
 
@@ -226,6 +228,8 @@ async def yt_player(video_id: str):
 @app.get("/api/status")
 async def api_status() -> dict:
     _cancel_shutdown_if_back()
+    out_dev = speech.find_best_output_device()
+    is_headset = out_dev is not None
     return {
         "status": core.status,
         "task": core.current_task,
@@ -237,6 +241,8 @@ async def api_status() -> dict:
         "ambient": core.mic.ambient,
         "media_busy": tools.media_is_playing(),
         "wake_count": core._wake_count,
+        "volume": speech.get_playback_volume(),
+        "is_headset": is_headset,
     }
 
 
@@ -755,6 +761,54 @@ class ActionUnlockPhoneIn(BaseModel):
 async def api_action_phone_unlock(body: ActionUnlockPhoneIn) -> dict:
     msg = tools.unlock_phone(phone=body.phone, pin=body.pin)
     return {"ok": True, "message": msg}
+
+
+@app.get("/api/volume")
+async def api_get_volume() -> dict:
+    vol = speech.get_playback_volume()
+    out_dev = speech.find_best_output_device()
+    dev_name = "Default Speakers"
+    is_headset = False
+    if out_dev is not None:
+        try:
+            import sounddevice as sd
+            d = sd.query_devices(out_dev)
+            dev_name = d.get("name", "Earbuds")
+            is_headset = True
+        except Exception:
+            pass
+    return {"volume": vol, "device": dev_name, "is_headset": is_headset}
+
+
+class VolumeIn(BaseModel):
+    volume: int | None = None
+    delta: int | None = None
+
+
+@app.post("/api/volume")
+async def api_set_volume(body: VolumeIn) -> dict:
+    cur = speech.get_playback_volume()
+    if body.delta is not None:
+        new_vol = cur + body.delta
+    elif body.volume is not None:
+        new_vol = body.volume
+    else:
+        new_vol = cur
+    res_vol = speech.set_playback_volume(new_vol)
+    out_dev = speech.find_best_output_device()
+    dev_name = "Default Speakers"
+    is_headset = False
+    if out_dev is not None:
+        try:
+            import sounddevice as sd
+            d = sd.query_devices(out_dev)
+            dev_name = d.get("name", "Earbuds")
+            is_headset = True
+        except Exception:
+            pass
+    resp = {"type": "volume", "volume": res_vol, "device": dev_name, "is_headset": is_headset}
+    broadcast(resp)
+    return resp
 
 
 # ---------------------------------------------------------------------

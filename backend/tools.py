@@ -430,16 +430,44 @@ def screenshot(name: str = "shot") -> str:
 
 
 def volume(t: str) -> str | None:
-    def key(code: int) -> None:
-        subprocess.run(["powershell", "-NoProfile", "-Command",
-                        f"(New-Object -ComObject WScript.Shell).SendKeys([char]{code})"],
-                       capture_output=True, timeout=15, creationflags=NO_WINDOW)
-    if re.search(r"volume up|turn up", t):
-        key(175); return "Volume up."
-    if re.search(r"volume down|turn down", t):
-        key(174); return "Volume down."
-    if re.search(r"mute|silence", t):
-        key(173); return "Muted."
+    from .speech import get_playback_volume, set_playback_volume
+    import ctypes
+
+    def send_win_vol(key_code: int):
+        try:
+            ctypes.windll.user32.keybd_event(key_code, 0, 0, 0)
+            ctypes.windll.user32.keybd_event(key_code, 0, 2, 0)
+        except Exception:
+            pass
+
+    m_set = re.search(r"(?:set\s+)?(?:volume|sound)\s+(?:to\s+)?(\d{1,3})\s*(?:%|percent)?", t)
+    if m_set:
+        v = max(0, min(100, int(m_set.group(1))))
+        set_playback_volume(v)
+        return f"Volume set to {v}%."
+
+    if re.search(r"volume up|turn up|louder|increase volume", t):
+        v = min(100, get_playback_volume() + 10)
+        set_playback_volume(v)
+        send_win_vol(0xAF)  # VK_VOLUME_UP
+        return f"Volume increased to {v}%."
+
+    if re.search(r"volume down|turn down|quieter|decrease volume|softer|lower volume", t):
+        v = max(0, get_playback_volume() - 10)
+        set_playback_volume(v)
+        send_win_vol(0xAE)  # VK_VOLUME_DOWN
+        return f"Volume decreased to {v}%."
+
+    if re.search(r"^mute$|mute (?:pc|volume|sound|audio)|silence", t):
+        set_playback_volume(0)
+        send_win_vol(0xAD)  # VK_VOLUME_MUTE
+        return "Muted."
+
+    if re.search(r"^unmute$|unmute (?:pc|volume|sound|audio)", t):
+        set_playback_volume(80)
+        send_win_vol(0xAF)
+        return "Unmuted. Volume set to 80%."
+
     return None
 
 

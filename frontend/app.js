@@ -200,6 +200,9 @@
     renderDevices(s.devices);
     renderActions(s.actions);
     renderTurns(s.turns);
+    if (typeof s.volume === 'number') {
+      updateVolumeUI(s.volume, s.is_headset, s.audio_device);
+    }
     if (typeof s.level === 'number') {
       const amb = s.ambient || 0.01;
       const lvl = Math.min(1, Math.max(0, (s.level - amb * 0.7) / (amb * 9)));
@@ -255,6 +258,7 @@
       if (msg && msg.type === 'reply_seg') { segStream(msg); return; }
       if (msg && msg.type === 'reply_play') { playStream(msg); return; }
       if (msg && msg.type === 'reply_done') { doneStream(msg); return; }
+      if (msg && msg.type === 'volume') { updateVolumeUI(msg.volume, msg.is_headset, msg.device); return; }
       applyState(msg);
     };
     ws.onclose = () => setTimeout(connect, 2000);
@@ -1050,6 +1054,91 @@
     addLine('user', 'Set a timer for 5 minutes.');
     addLine('jarvis', 'Timer set for 5 minutes.');
   });
+
+  // ==================================================================
+  // AUDIO VOLUME ADJUST CONTROLS (EARBUDS & SPEAKERS)
+  // ==================================================================
+  const volBar = document.getElementById('volBar');
+  const volBadge = document.getElementById('volBadge');
+  const volIcon = document.getElementById('volIcon');
+  const volDeviceLabel = document.getElementById('volDeviceLabel');
+  const volDownBtn = document.getElementById('volDownBtn');
+  const volUpBtn = document.getElementById('volUpBtn');
+  const volSlider = document.getElementById('volSlider');
+  const volFill = document.getElementById('volFill');
+  const volPercent = document.getElementById('volPercent');
+
+  let currentVolume = 80;
+  let previousVolume = 80;
+
+  function updateVolumeUI(vol, isHeadset, devName) {
+    currentVolume = Math.max(0, Math.min(100, parseInt(vol) || 0));
+    if (volSlider) volSlider.value = currentVolume;
+    if (volFill) volFill.style.width = currentVolume + '%';
+    if (volPercent) volPercent.textContent = currentVolume + '%';
+    if (volIcon) volIcon.textContent = isHeadset ? '🎧' : '🔊';
+    if (volDeviceLabel) volDeviceLabel.textContent = isHeadset ? 'EARBUDS' : 'SPEAKERS';
+    if (volBadge && devName) volBadge.title = devName + ' (Click to toggle mute)';
+  }
+
+  function setVolumeServer(data) {
+    fetch('/api/volume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (typeof d.volume === 'number') {
+          updateVolumeUI(d.volume, d.is_headset, d.device);
+        }
+      })
+      .catch(() => {});
+  }
+
+  if (volSlider) {
+    volSlider.addEventListener('input', (e) => {
+      const v = parseInt(e.target.value);
+      if (volFill) volFill.style.width = v + '%';
+      if (volPercent) volPercent.textContent = v + '%';
+    });
+    volSlider.addEventListener('change', (e) => {
+      setVolumeServer({ volume: parseInt(e.target.value) });
+    });
+  }
+
+  if (volDownBtn) {
+    volDownBtn.addEventListener('click', () => {
+      setVolumeServer({ delta: -10 });
+    });
+  }
+
+  if (volUpBtn) {
+    volUpBtn.addEventListener('click', () => {
+      setVolumeServer({ delta: 10 });
+    });
+  }
+
+  if (volBadge) {
+    volBadge.addEventListener('click', () => {
+      if (currentVolume > 0) {
+        previousVolume = currentVolume;
+        setVolumeServer({ volume: 0 });
+      } else {
+        setVolumeServer({ volume: previousVolume || 80 });
+      }
+    });
+  }
+
+  // Fetch initial volume on dashboard start
+  fetch('/api/volume')
+    .then(r => r.json())
+    .then(d => {
+      if (typeof d.volume === 'number') {
+        updateVolumeUI(d.volume, d.is_headset, d.device);
+      }
+    })
+    .catch(() => {});
 
   // ==================================================================
   // AI SCREEN VISION MODAL HANDLERS

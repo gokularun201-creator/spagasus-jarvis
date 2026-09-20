@@ -71,6 +71,19 @@
           <button class="dock-btn" id="dockDesktop" title="Show Desktop">🖥️ DESK</button>
           <button class="dock-btn" id="dockTimer" title="Set 5 Min Timer">⏱️ 5m</button>
         </div>
+        <div class="vol-bar" id="volBar">
+          <div class="vol-badge" id="volBadge" title="Click to toggle mute">
+            <span id="volIcon">🎧</span>
+            <span id="volDeviceLabel">EARBUDS</span>
+          </div>
+          <button class="vol-btn" id="volDownBtn" title="Decrease Volume (-10%)">🔉 −</button>
+          <div class="vol-slider-wrap">
+            <input type="range" class="vol-slider" id="volSlider" min="0" max="100" value="80" step="5" title="Drag to adjust volume">
+            <div class="vol-fill" id="volFill" style="width: 80%"></div>
+          </div>
+          <button class="vol-btn" id="volUpBtn" title="Increase Volume (+10%)">🔊 +</button>
+          <div class="vol-percent" id="volPercent">80%</div>
+        </div>
         <div class="controls-row">
           <button class="cam" id="cam">◉ CAM</button>
           <button class="wake" id="wake">WAKE</button>

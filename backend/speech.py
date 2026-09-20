@@ -505,6 +505,43 @@ def _save_mic(dev: int | None) -> None:
         pass
 
 
+SAVED_VOLUME_PATH = Path(__file__).resolve().parent.parent / "database" / "audio_volume.json"
+_playback_volume: int = 80
+
+
+def get_playback_volume() -> int:
+    """Return the active software playback volume (0-100%)."""
+    global _playback_volume
+    return _playback_volume
+
+
+def set_playback_volume(val: int) -> int:
+    """Set the software playback volume (0-100%) and persist it."""
+    global _playback_volume
+    _playback_volume = max(0, min(100, int(val)))
+    try:
+        SAVED_VOLUME_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SAVED_VOLUME_PATH.write_text(json.dumps({"volume": _playback_volume}), encoding="utf-8")
+    except Exception:
+        pass
+    print(f"[speech] playback volume set to {_playback_volume}%", flush=True)
+    return _playback_volume
+
+
+def _load_saved_volume() -> int:
+    try:
+        if SAVED_VOLUME_PATH.exists():
+            data = json.loads(SAVED_VOLUME_PATH.read_text(encoding="utf-8"))
+            v = int(data.get("volume", 80))
+            return max(0, min(100, v))
+    except Exception:
+        pass
+    return 80
+
+
+_playback_volume = _load_saved_volume()
+
+
 def _mark_bad(dev: int | None) -> None:
     """Remember a device that proved dead - skip it for 5 minutes."""
     global _probe_cache
@@ -1364,13 +1401,18 @@ class Tts:
     def _play_audio(self, path: str) -> None:
         if self._cancel.is_set():
             return
+        vol_pct = get_playback_volume()
+        if vol_pct <= 0:
+            return
+        vol_scale = vol_pct / 100.0
         out_dev = find_best_output_device()
         if out_dev is not None:
             try:
                 import sounddevice as sd
                 arr, rate = _decode_audio(path)
                 if len(arr) > 0:
-                    sd.play(arr, rate, device=out_dev)
+                    scaled_arr = np.clip(arr.astype(np.float32) * vol_scale, -32768.0, 32767.0).astype(np.int16)
+                    sd.play(scaled_arr, rate, device=out_dev)
                     while sd.get_stream() and sd.get_stream().active and not self._cancel.is_set():
                         time.sleep(0.03)
                     if self._cancel.is_set():
@@ -1384,9 +1426,13 @@ class Tts:
     def _play_mci(self, path: str) -> None:
         if self._cancel.is_set():
             return
+        vol_pct = get_playback_volume()
+        if vol_pct <= 0:
+            return
         mci = ctypes.windll.winmm.mciSendStringW
         mci('close s', None, 0, None)
         mci(f'open "{path}" type mpegvideo alias s', None, 0, None)
+        mci(f'setaudio s volume to {int(vol_pct * 10)}', None, 0, None)
         mci('play s', None, 0, None)
         buf = ctypes.create_unicode_buffer(64)
         while not self._cancel.is_set():
