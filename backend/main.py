@@ -109,6 +109,11 @@ class Hub:
     def disconnect(self, ws: WebSocket) -> None:
         with self.lock:
             self.clients.pop(ws, None)
+            pc_clients = [k for k in self.clients.values() if k == "pc"]
+            if not pc_clients and EXIT_ON_CLOSE:
+                global _shutdown_at
+                if _shutdown_at is None:
+                    _shutdown_at = time.monotonic()
 
     def send(self, payload: dict, kind: str | None = None) -> int:
         """Broadcast; kind=None sends to everyone. Returns how many got it."""
@@ -337,15 +342,31 @@ def _test_llm_key(base_url: str, api_key: str, model: str) -> tuple[bool, str]:
 
 @app.get("/api/ollama/status")
 def api_ollama_status() -> dict:
-    from . import config
+    from . import config, ollama_service
+    if not ollama_service.is_ollama_alive(timeout=0.4):
+        return {"running": False, "models": [], "active_model": config.LOCAL_LLM_MODEL}
     try:
         req = urllib.request.Request("http://127.0.0.1:11434/api/tags")
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
             data = json.loads(resp.read().decode("utf-8", "replace"))
             models = [m.get("name") for m in data.get("models", [])]
             return {"running": True, "models": models, "active_model": config.LOCAL_LLM_MODEL}
     except Exception as exc:  # noqa: BLE001
         return {"running": False, "error": str(exc), "active_model": config.LOCAL_LLM_MODEL}
+
+
+@app.post("/api/ollama/start")
+def api_ollama_start() -> dict:
+    from . import ollama_service
+    ok = ollama_service.start_ollama(wait=True)
+    return {"ok": ok, "running": ollama_service.is_ollama_alive()}
+
+
+@app.post("/api/ollama/stop")
+def api_ollama_stop() -> dict:
+    from . import ollama_service
+    ollama_service.stop_ollama()
+    return {"ok": True, "running": ollama_service.is_ollama_alive()}
 
 
 @app.get("/api/flow/status")
@@ -500,6 +521,11 @@ def _shutdown_watcher() -> None:
                 except OSError:
                     pass
                 _shutdown_at = None
+                try:
+                    from . import ollama_service
+                    ollama_service.stop_ollama()
+                except Exception:
+                    pass
                 time.sleep(0.5)
                 os._exit(0)
             else:
@@ -955,6 +981,12 @@ def start() -> None:
     from . import speech
     threading.Thread(target=speech.warmup_parakeet, daemon=True).start()
     threading.Thread(target=speech.warmup_pyttsx3, daemon=True).start()
+
+    # Auto-start Ollama server for local Gemma 4 AI
+    from . import ollama_service
+    import atexit
+    atexit.register(ollama_service.stop_ollama)
+    threading.Thread(target=ollama_service.start_ollama, kwargs={"wait": False}, daemon=True).start()
 
     # periodic device sweep + stats broadcast
     def tick() -> None:

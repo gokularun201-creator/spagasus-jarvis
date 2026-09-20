@@ -141,6 +141,9 @@ def llm_chat(history: list[dict], user_text: str) -> str | None:
     # 1. Prioritize Local Gemma 4 (Ollama) if enabled
     if LOCAL_LLM_ENABLED:
         try:
+            from . import ollama_service
+            if not ollama_service.is_ollama_alive(timeout=0.3):
+                ollama_service.start_ollama(wait=True, timeout=8.0)
             with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
                 msg = (data.get("choices") or [{}])[0].get("message", {})
@@ -177,6 +180,9 @@ def llm_chat_stream(history: list[dict], user_text: str):
         # 1. Try local Gemma 4 (Ollama)
         if LOCAL_LLM_ENABLED:
             try:
+                from . import ollama_service
+                if not ollama_service.is_ollama_alive(timeout=0.3):
+                    ollama_service.start_ollama(wait=True, timeout=8.0)
                 resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=120)
                 yielded_any = False
                 with resp:

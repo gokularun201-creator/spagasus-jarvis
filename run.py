@@ -71,6 +71,12 @@ def main() -> int:
     if port_alive():
         print("[spagasus] already running - leaving it alone", flush=True)
         return 0
+    try:
+        from backend import ollama_service
+        import atexit
+        atexit.register(ollama_service.stop_ollama)
+    except Exception:
+        pass
     while True:
         if (BASE / "stop.flag").exists():
             print("[spagasus] stop requested - shutting down", flush=True)
@@ -78,6 +84,11 @@ def main() -> int:
                 if proc is not None:
                     proc.kill()
             except OSError:
+                pass
+            try:
+                from backend import ollama_service
+                ollama_service.stop_ollama()
+            except Exception:
                 pass
             return 0
         if proc is not None and proc.poll() is not None:
@@ -117,6 +128,11 @@ def main() -> int:
                     cwd=BASE, stdout=log, stderr=subprocess.STDOUT,
                     creationflags=0x08000000,
                 )
+            try:
+                from backend import ollama_service
+                ollama_service.start_ollama(wait=False)
+            except Exception:
+                pass
             started_at = time.time()
             dead_checks = 0
             print(f"[spagasus] started server (pid {proc.pid})", flush=True)

@@ -466,13 +466,15 @@
   }));
 
   // closing the dashboard closes the whole app: the server exits and the
-  // supervisor stops instead of restarting (guard: only after 10s open)
+  // supervisor stops instead of restarting (guard: only after 2s open)
   const loadTime = Date.now();
-  window.addEventListener('pagehide', () => {
-    if (Date.now() - loadTime > 10000) {
+  const sendAppClose = () => {
+    if (Date.now() - loadTime > 2000) {
       navigator.sendBeacon('/api/shutdown');
     }
-  });
+  };
+  window.addEventListener('pagehide', sendAppClose);
+  window.addEventListener('beforeunload', sendAppClose);
 
   // ==================================================================
   // HAND TRACKING - camera control (the ULTRON effect): the whole UI
