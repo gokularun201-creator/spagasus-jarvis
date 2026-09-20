@@ -59,8 +59,13 @@ def clean_flow_speech(text: str) -> str:
     # 4. Fix common speech-to-text phonetic mishearings and accent variants
     phonetic_fixes = [
         (r"\b(?:hey\s+|hi\s+|ok\s+|okay\s+|hello\s+)?(darlis|darvis|johnny|johnnys|johnny\'s|davis|service|travis|harvest|starfish|spagasus|pegasus|spagas|bagas|jarvis|jarvees|jarv)\b", "Jarvis"),
+        (r"\b(paly|pley|plau|plaay|plsy|pleay)\b", "play"),
+        (r"\b(phscho|physch|psyco|pshyco|pshycho|psychoo)\b", "psycho"),
+        (r"\b(kadhal|kaadhal|kaathal|kathal)\b", "kadhal"),
         (r"\b(on\s*lock|un\s*lock|and\s*lock|in\s*lock|unblock|unlocked|unlocking)\b", "unlock"),
-        (r"\b(wake\s*up|wakeup|wake\s*the|waking)\b", "wake up"),
+        (r"\b(wake\s*up|wakeup|wake\s*the|waking|breakup\s+jarvis|break\s+up\s+jarvis|wake\s+up\s+jar)\b", "wake up"),
+        (r"\b(make\s+maximize|make\s+it\s+maximize|make\s+maximized|make\s+fullscreen)\b", "maximize window"),
+        (r"\b(make\s+minimize|make\s+it\s+minimize|make\s+minimized)\b", "minimize window"),
         (r"\b(second\s+mobile|2nd\s+mobile|second\s+phone|2nd\s+phone|second\s+one)\b", "second mobile"),
         (r"\b(first\s+mobile|1st\s+mobile|first\s+phone|1st\s+phone|first\s+one)\b", "first mobile"),
         (r"\b(open\s+ut|open\s+utip|open\s+utape|open\s+u\s*tube|open\s+you\s*tube)\b", "open YouTube"),
@@ -71,6 +76,8 @@ def clean_flow_speech(text: str) -> str:
         (r"\b(calculater)\b", "Calculator"),
         (r"\b(one\s+two\s+three\s+four|1\s*2\s*3\s*4)\b", "1234"),
         (r"\b(five\s+four\s+four\s+four|5\s*4\s*4\s*4)\b", "5444"),
+        (r"(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})\s+(?:connect\s+this|connect)", r"connect phone \1"),
+        (r"connect\s+this\s+(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})", r"connect phone \1"),
     ]
     for pattern, repl in phonetic_fixes:
         cleaned = re.sub(pattern, repl, cleaned, flags=re.IGNORECASE)

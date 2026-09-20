@@ -83,12 +83,15 @@ WISPR_FLOW_API_KEY = _env("WISPR_FLOW_API_KEY")
 WISPR_FLOW_ENDPOINT = _env("WISPR_FLOW_ENDPOINT", "https://api.openai.com/v1/audio/transcriptions")
 
 # --- speech ---------------------------------------------------------
-STT_ENGINE = _env("STT_ENGINE", "google")     # google (ultra-fast <300ms) | whisper | parakeet
+STT_ENGINE = _env("STT_ENGINE", "auto")     # auto | parakeet | whisper | google
+STT_LANGUAGE = _env("STT_LANGUAGE", "en-IN") # en-IN | en-US
 WHISPER_MODEL = _env("WHISPER_MODEL", "small")  # tiny|base|small (downloaded on demand)
 TTS_VOICE = _env("TTS_VOICE", "en-US-ChristopherNeural")
-# Parakeet v2 (NVIDIA) runs via sherpa-onnx; the model is downloaded on
-# demand from the Settings app (never bundled in the APK).
+# Parakeet v2 (NVIDIA) runs via sherpa-onnx; model can be in project or installed AppData
 MODELS_DIR = BASE_DIR / "models"
+_APP_DATA_MODELS = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "SpagasusJarvis" / "models"
+if not (MODELS_DIR / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8").exists() and (_APP_DATA_MODELS / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8").exists():
+    MODELS_DIR = _APP_DATA_MODELS
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 PARAKEET_MODEL_NAME = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
 # Real-time spectral noise gate on the mic - only your voice gets through.

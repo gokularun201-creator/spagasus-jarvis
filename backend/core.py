@@ -71,12 +71,23 @@ def time_greeting(now: datetime.datetime | None = None) -> str:
     return "Good night"
 
 
+def _map_role(role: str) -> str:
+    r = (role or "").lower().strip()
+    if r in ("jarvis", "assistant", "model", "bot"):
+        return "assistant"
+    if r in ("user", "human"):
+        return "user"
+    if r in ("system",):
+        return "system"
+    return "assistant"
+
+
 def llm_chat(history: list[dict], user_text: str) -> str | None:
     """OpenAI-compatible chat. Returns None when no key is configured."""
     if not LLM_API_KEY:
         return None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += [{"role": h["role"], "content": h["text"]} for h in history[-8:]]
+    messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-8:]]
     messages.append({"role": "user", "content": user_text})
     try:
         req = urllib.request.Request(
@@ -99,7 +110,7 @@ def llm_chat_stream(history: list[dict], user_text: str):
     if not LLM_API_KEY:
         return None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += [{"role": h["role"], "content": h["text"]} for h in history[-8:]]
+    messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-8:]]
     messages.append({"role": "user", "content": user_text})
 
     def _stream():
@@ -623,9 +634,9 @@ class Core:
         # window management
         if re.search(r"minimize all(?:\s+windows)?|show (?:the )?desktop|hide all windows", t):
             return tools.window_management("minimize_all")
-        if re.search(r"maximize (?:this |the |active )?window|fullscreen window", t):
+        if re.search(r"(?:make\s+)?maximize(?:\s+(?:this|the|active)?\s*(?:window)?)?|fullscreen(?:\s+window)?", t):
             return tools.window_management("maximize")
-        if re.search(r"minimize (?:this |the |active )?window", t):
+        if re.search(r"(?:make\s+)?minimize(?:\s+(?:this|the|active)?\s*(?:window)?)?", t):
             return tools.window_management("minimize")
         if re.search(r"snap (?:this |the )?window (?:to the )?left", t):
             return tools.window_management("snap_left")
@@ -820,12 +831,13 @@ class Core:
             return tools.adb_pair(m.group(2), m.group(1))
         # connect the phone to ADB:
         # "connect phone", "connect to my mobile", "connect my phone to adb",
-        # or "connect phone 192.168.1.11:42607"
-        m = re.search(r"connect(?:\s+to)?\s+(?:my\s+|the\s+)?"
-                      r"(?:phone|mobile)(?:\s+to)?(?:\s+adb)?"
-                      r"(?:\s+(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}))?", t)
+        # "connect phone 192.168.1.11:42607", or "192.168.1.10:41565 connect this"
+        m = re.search(r"(?:(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})\s+connect(?:\s+this)?|"
+                      r"connect(?:\s+to)?\s+(?:my\s+|the\s+)?"
+                      r"(?:phone|mobile|this)?(?:\s+to)?(?:\s+adb)?"
+                      r"(?:\s+(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}))?)", t)
         if m:
-            addr = m.group(1)
+            addr = m.group(1) or m.group(2)
             if addr:
                 return tools.adb_connect(addr)
             if tools.adb_devices():

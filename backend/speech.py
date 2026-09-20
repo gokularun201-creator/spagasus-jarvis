@@ -23,37 +23,68 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import NOISE_CANCEL, SAMPLE_RATE, STT_ENGINE, TTS_VOICE, WHISPER_MODEL
+from .config import NOISE_CANCEL, SAMPLE_RATE, STT_ENGINE, STT_LANGUAGE, TTS_VOICE, WHISPER_MODEL
 
 # Google speech endpoint - accepts RAW int16 PCM, so no flac needed.
-GOOGLE_SPEECH_URL = (
+GOOGLE_SPEECH_URL_TEMPLATE = (
     "https://www.google.com/speech-api/v2/recognize"
-    "?client=chromium&lang=en-US&key=AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
+    "?client=chromium&lang={lang}&key=AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
 )
 
 
-def google_recognize_raw(raw_pcm: bytes, rate: int = SAMPLE_RATE) -> str:
+def google_recognize_raw(raw_pcm: bytes, rate: int = SAMPLE_RATE, lang: str | None = None) -> str:
     if not raw_pcm:
         return ""
+    target_lang = lang or STT_LANGUAGE or "en-IN"
+    url = GOOGLE_SPEECH_URL_TEMPLATE.format(lang=target_lang)
     req = urllib.request.Request(
-        GOOGLE_SPEECH_URL,
+        url,
         data=raw_pcm,
         headers={"Content-Type": f"audio/l16; rate={rate}",
                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        body = resp.read().decode("utf-8", "replace")
-    for line in body.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            data = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        for result in data.get("result", []):
-            alts = result.get("alternative", [])
-            if alts and alts[0].get("transcript"):
-                return alts[0]["transcript"]
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        for line in body.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            for result in data.get("result", []):
+                alts = result.get("alternative", [])
+                if alts and alts[0].get("transcript"):
+                    return alts[0]["transcript"]
+    except Exception:
+        pass
+
+    # Multi-accent fallback: if en-IN produced nothing, try en-US (or vice-versa)
+    fallback_lang = "en-US" if target_lang != "en-US" else "en-IN"
+    try:
+        url_fb = GOOGLE_SPEECH_URL_TEMPLATE.format(lang=fallback_lang)
+        req_fb = urllib.request.Request(
+            url_fb,
+            data=raw_pcm,
+            headers={"Content-Type": f"audio/l16; rate={rate}",
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req_fb, timeout=8) as resp:
+            body = resp.read().decode("utf-8", "replace")
+        for line in body.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            for result in data.get("result", []):
+                alts = result.get("alternative", [])
+                if alts and alts[0].get("transcript"):
+                    return alts[0]["transcript"]
+    except Exception:
+        pass
     return ""
 
 
@@ -102,8 +133,36 @@ def _normalize_gain(raw_pcm: bytes) -> bytes:
 
 
 def _transcribe(raw_pcm: bytes) -> str:
-    """Ultra-fast STT pipeline: Google Speech (<300ms) with Wispr Flow / offline fallback."""
-    # 1. Google Speech API (Instant <300ms, high accuracy, all accents)
+    """Intelligent multi-tier STT pipeline: Parakeet v2 / Wispr Flow / Google en-IN+en-US / Whisper."""
+    # 1. Local neural Parakeet v2 (offline, high fidelity, 0 latency, no rate limits)
+    if STT_ENGINE in ("auto", "parakeet"):
+        try:
+            if parakeet_status()["installed"]:
+                res = recognize_parakeet(raw_pcm)
+                if res and res.strip():
+                    return res.strip()
+        except Exception as exc:
+            print(f"[speech] Parakeet ASR fallback ({exc})", flush=True)
+
+    # 2. Local Whisper (offline, multi-lingual)
+    if STT_ENGINE == "whisper":
+        try:
+            res = recognize_fast(raw_pcm)
+            if res and res.strip():
+                return res.strip()
+        except Exception as exc:
+            print(f"[speech] Whisper ASR fallback ({exc})", flush=True)
+
+    # 3. Wispr Flow / Whisper API if configured
+    try:
+        from .flow import recognize_wispr_flow
+        w_text = recognize_wispr_flow(raw_pcm)
+        if w_text and w_text.strip():
+            return w_text.strip()
+    except Exception:
+        pass
+
+    # 4. Google Speech API (multi-accent: en-IN with en-US fallback)
     try:
         res = google_recognize_raw(raw_pcm)
         if res and res.strip():
@@ -111,24 +170,20 @@ def _transcribe(raw_pcm: bytes) -> str:
     except Exception:
         pass
 
-    # 2. Wispr Flow / Whisper API if configured
-    try:
-        from .flow import recognize_wispr_flow
-        w_text = recognize_wispr_flow(raw_pcm)
-        if w_text:
-            return w_text
-    except Exception:
-        pass
-
-    # 3. Local offline fallback
-    if STT_ENGINE != "google":
+    # 5. Secondary local offline fallback
+    if STT_ENGINE not in ("auto", "parakeet"):
         try:
             if parakeet_status()["installed"]:
-                return recognize_parakeet(raw_pcm)
+                res = recognize_parakeet(raw_pcm)
+                if res and res.strip():
+                    return res.strip()
         except Exception:
             pass
+    if STT_ENGINE != "whisper":
         try:
-            return recognize_fast(raw_pcm)
+            res = recognize_fast(raw_pcm)
+            if res and res.strip():
+                return res.strip()
         except Exception:
             pass
     return ""
@@ -1067,9 +1122,9 @@ class MicStream:
             # JARVIS's own voice wakes itself (that self-wake loop is what
             # made it 'not listen'). Claps still barge in at any time.
             if (self.on_wake_word is not None and not tts_busy
-                    and now - getattr(self, "_last_wakeword_check", 0) > 0.15
+                    and now - getattr(self, "_last_wakeword_check", 0) > 0.60
                     and not getattr(self, "_wake_check_running", False)):
-                if (rms > max(0.0012, self.floor * 1.05) or self.vad_on):
+                if (self.vad_on or rms > max(0.005, self.floor * 2.2)):
                     self._last_wakeword_check = now
                     self._wake_check_running = True
                     threading.Thread(target=self._try_wake_word, daemon=True).start()
@@ -1112,13 +1167,14 @@ class MicStream:
         if not data and not raw_data:
             return
         arr = np.asarray(raw_data if raw_data else data, dtype=np.float32)
+        if len(arr) == 0 or float(np.max(np.abs(arr))) < max(0.015, self.floor * 2.2):
+            return
         raw = (np.clip(arr, -1, 1) * 32767).astype(np.int16).tobytes()
         try:
             text = recognize(raw)
         except Exception:  # noqa: BLE001
             return
-        if not text:
-            print("[speech] wake-check clip: <no speech>", flush=True)
+        if not text or not text.strip():
             return
         norm = re.sub(r"[^a-z0-9 ]", "", text.lower())
         print(f"[speech] wake-check clip: {norm!r}", flush=True)
