@@ -57,12 +57,26 @@ JOKES = [
 ]
 
 SYSTEM_PROMPT = (
-    "You are SPAGASUS JARVIS, an advanced, calm, professional, slightly futuristic AI "
-    "assistant for Gokul running directly on his Windows system. You are equipped with "
-    "real-time voice recognition and audio capabilities supporting wireless earbuds, headsets, "
-    "and microphones. You can hear Gokul's voice through his connected mic/earbuds and speak "
-    "replies directly to his earbuds/speakers. Answer concisely in 1-2 sentences. Never claim "
-    "you performed a computer action that wasn't executed."
+    "You are SPAGASUS JARVIS, an advanced, autonomous AI assistant powered by Gemma 4 12B "
+    "running directly on Gokul's Windows PC. You have your own autonomous ideas and full automation authority. "
+    "You can hear Gokul through his wireless earbuds mic and speak directly into his earbuds. "
+    "When answering questions or suggesting ideas, you can trigger REAL computer automations by appending action tags:\n"
+    "- [ACTION:open_app(\"app_name\")] (e.g. 'code', 'chrome', 'spotify', 'notepad')\n"
+    "- [ACTION:close_app(\"app_name\")]\n"
+    "- [ACTION:play_song(\"song or artist\")] (plays on YouTube/music)\n"
+    "- [ACTION:volume(50)] (sets volume 0-100%)\n"
+    "- [ACTION:set_brightness(75)] (sets screen brightness 0-100%)\n"
+    "- [ACTION:media_control(\"playpause\" | \"next\" | \"prev\" | \"mute\")]\n"
+    "- [ACTION:window_management(\"minimize_all\" | \"maximize\" | \"snap_left\" | \"snap_right\")]\n"
+    "- [ACTION:clean_temp_files()] (cleans temporary cache & frees memory)\n"
+    "- [ACTION:set_timer(seconds=300, label=\"Focus\")]\n"
+    "- [ACTION:lock()]\n"
+    "- [ACTION:unlock_phone()]\n"
+    "- [ACTION:open_site(\"url\")]\n"
+    "- [ACTION:run_command(\"powershell_command\")]\n"
+    "When Gokul asks for ideas, what to do, or commands an automation, proactively decide what needs doing, "
+    "explain your reasoning in 1-2 calm, confident, futuristic sentences, and append the appropriate [ACTION:...] tags. "
+    "Keep replies concise and speakable for voice."
 )
 
 STATUS_STANDBY = "STANDBY"
@@ -246,6 +260,96 @@ def _split_segments(text: str, max_len: int = 140) -> list[str]:
     return out
 
 
+def execute_embedded_action(action_str: str) -> str:
+    """Execute a single parsed action tag such as open_app("chrome") or volume(60)."""
+    action_str = action_str.strip()
+    m = re.match(r"^([a-zA-Z0-9_]+)\s*\((.*)\)$", action_str, re.DOTALL)
+    if not m:
+        return f"Unknown action syntax: {action_str}"
+    fn = m.group(1).strip()
+    raw_args = m.group(2).strip()
+
+    args = []
+    kwargs = {}
+    if raw_args:
+        parts = [p.strip() for p in re.split(r",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", raw_args)]
+        for p in parts:
+            if "=" in p and not p.startswith("{"):
+                k, _, v = p.partition("=")
+                kwargs[k.strip()] = v.strip().strip('"').strip("'")
+            else:
+                args.append(p.strip().strip('"').strip("'"))
+
+    try:
+        if fn == "open_app":
+            target = kwargs.get("name") or (args[0] if args else "")
+            return tools.open_app(target)
+        elif fn == "close_app":
+            target = kwargs.get("name") or (args[0] if args else "")
+            return tools.close_app(target)
+        elif fn == "play_song":
+            target = kwargs.get("query") or (args[0] if args else "")
+            return tools.play_song(target)
+        elif fn == "volume":
+            lvl = kwargs.get("level") or (args[0] if args else "50")
+            return tools.volume(f"volume {lvl}") or f"Volume set to {lvl}%."
+        elif fn == "set_brightness":
+            lvl = int(kwargs.get("level") or (args[0] if args else 70))
+            return tools.set_brightness(lvl)
+        elif fn == "media_control":
+            act = kwargs.get("action") or (args[0] if args else "playpause")
+            return tools.media_control(act)
+        elif fn == "window_management":
+            act = kwargs.get("action") or (args[0] if args else "minimize_all")
+            return tools.window_management(act)
+        elif fn == "clean_temp_files":
+            return tools.clean_temp_files()
+        elif fn == "set_timer":
+            secs = int(kwargs.get("seconds") or (args[0] if args else 300))
+            lbl = kwargs.get("label") or (args[1] if len(args) > 1 else "Timer")
+            return tools.set_timer(secs, lbl)
+        elif fn == "lock":
+            return tools.lock()
+        elif fn == "unlock_phone":
+            return tools.unlock_phone()
+        elif fn == "wake_phone":
+            return tools.wake_phone()
+        elif fn == "open_site":
+            url = kwargs.get("url") or (args[0] if args else "")
+            return tools.open_site(url) or f"Opened {url}."
+        elif fn == "run_command":
+            cmd = kwargs.get("cmd") or (args[0] if args else "")
+            return tools._run(cmd)
+        elif hasattr(tools, fn):
+            t_func = getattr(tools, fn)
+            return str(t_func(*args, **kwargs))
+        return f"Unknown tool: {fn}"
+    except Exception as exc:  # noqa: BLE001
+        return f"Action {fn} failed: {exc}"
+
+
+def process_autonomous_actions(reply: str) -> tuple[str, list[tuple[str, str]]]:
+    """Extract and execute all [ACTION:...] tags from Gemma's response.
+    Returns (cleaned_text_for_speech, list_of_(action, result))."""
+    if not reply:
+        return reply, []
+
+    pattern = r"\[ACTION:\s*([^\]]+)\]"
+    matches = re.findall(pattern, reply)
+    results = []
+    for action_str in matches:
+        res = execute_embedded_action(action_str)
+        results.append((action_str, res))
+        try:
+            memory.audit("autonomous_action", f"{action_str} -> {res}")
+        except Exception:
+            pass
+
+    cleaned = re.sub(pattern, "", reply).strip()
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned, results
+
+
 class Core:
     def __init__(self) -> None:
         self.mic = MicStream()
@@ -404,15 +508,17 @@ class Core:
             self._emit_reply({"type": "reply_done", "id": rid})
             if not spoke:
                 return ""   # caller speaks a graceful fallback
-            return full.strip() or "(LLM unavailable.)"
-        return full.strip() or "(No reply.)"
+            cleaned, actions = process_autonomous_actions(full)
+            return cleaned.strip() or "(LLM unavailable.)"
+        cleaned, actions = process_autonomous_actions(full)
+        return cleaned.strip() or "(No reply.)"
 
     def _flush_llm_seg(self, rid: int, seg: int, text: str) -> None:
-        text = text.strip()
-        if not text:
+        clean_text = re.sub(r"\[ACTION:[^\]]+\]", "", text).strip()
+        if not clean_text:
             return
-        self._emit_reply({"type": "reply_seg", "id": rid, "seg": seg, "text": text})
-        self.tts.say(text, seg)
+        self._emit_reply({"type": "reply_seg", "id": rid, "seg": seg, "text": clean_text})
+        self.tts.say(clean_text, seg)
 
     # ---- main loop ---------------------------------------------------
     def run_forever(self) -> None:
@@ -668,6 +774,26 @@ class Core:
             if not parts:
                 return "No devices connected yet. The mobile app can pair via the phone token."
             return "Connected devices: " + "; ".join(parts) + "."
+
+        # autonomous ideas & proactive automation (powered by Gemma 4 12B)
+        if re.search(r"(?:own\s+idea|give\s+(?:me\s+)?(?:an?\s+)?idea|what\s+to\s+do|what\s+should\s+(?:i|we)\s+do|automate\s+(?:something|everything|all)|surprise\s+me|new\s+idea|autonomous\s+mode|make\s+all\s+automation|what\s+can\s+you\s+automate|do\s+all\s+automation|what\s+will\s+you\s+do|clean\s+(?:up\s+)?(?:temp|cache|system|my\s+pc))", t):
+            stats = tools.system_stats()
+            hour = datetime.datetime.now().hour
+            time_ctx = "late night" if hour >= 22 or hour < 5 else ("morning" if hour < 12 else ("afternoon" if hour < 17 else "evening"))
+            earbuds_info = "connected to wireless earbuds" if getattr(self, "audio_output_is_headset", True) else "on system speakers"
+            prompt = (
+                f"Context: Time is {time_ctx} ({datetime.datetime.now().strftime('%I:%M %p')}). "
+                f"System: RAM usage {stats['ram']}%, CPU {stats['cpu']}%, Battery {stats['battery']}%. "
+                f"Audio output is {earbuds_info}. "
+                f"User request: '{text}'. "
+                f"As Spagasus Jarvis with autonomous decision-making powered by Gemma 4 12B, formulate an intelligent "
+                f"idea and plan of action for Gokul right now. Proactively decide what to automate (e.g. clean temp files, set volume, play music, open tools). "
+                f"Speak what you are doing in 1-2 clear, confident sentences and append [ACTION:...] tags to execute the automations immediately."
+            )
+            reply = llm_chat(memory.recent_turns(), prompt)
+            if reply and not reply.startswith("(LLM unavailable"):
+                cleaned, executed = process_autonomous_actions(reply)
+                return cleaned or reply
 
         # audio / microphone / wireless earbuds status check
         if re.search(r"(?:can\s+you\s+(?:hear|ear)\s+me|mic(?:rophone)?\s+status|check\s+mic|earbud|wireless\s+mic|(?:hear|ear)\s+(?:in|through)\s+(?:the\s+)?(?:wireless|mic|earbud)|wireless\s+earbud)", t):
@@ -1047,13 +1173,15 @@ class Core:
                 if gen is not None:
                     reply = self._stream_llm_reply(gen)
                     if reply and not reply.startswith("(LLM unavailable"):
-                        return reply
+                        cleaned, _ = process_autonomous_actions(reply)
+                        return cleaned or reply
             except Exception:  # noqa: BLE001
                 pass
         try:
             reply = llm_chat(memory.recent_turns(), text)
             if reply and not reply.startswith("(LLM unavailable"):
-                return reply
+                cleaned, _ = process_autonomous_actions(reply)
+                return cleaned or reply
         except Exception:  # noqa: BLE001
             pass
         ans = tools.web_answer(text)

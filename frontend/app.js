@@ -1023,7 +1023,7 @@
 
   // ==================================================================
   // HUD QUICK DOCK HANDLERS
-  // ==================================================================
+  const dockIdea = document.getElementById('dockIdea');
   const dockUnlock = document.getElementById('dockUnlock');
   const dockPlay = document.getElementById('dockPlay');
   const dockNext = document.getElementById('dockNext');
@@ -1040,6 +1040,11 @@
     }).catch(() => {});
   }
 
+  if (dockIdea) dockIdea.addEventListener('click', () => {
+    const prompt = 'Jarvis, give me your own idea and automate what to do right now';
+    addLine('user', prompt);
+    sendCommand(prompt);
+  });
   if (dockUnlock) dockUnlock.addEventListener('click', () => {
     postAction('/api/action/phone_unlock', { pin: '1234' });
     addLine('user', 'Unlock mobile (PIN 1234)');

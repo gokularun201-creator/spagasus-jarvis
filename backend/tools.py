@@ -2189,3 +2189,36 @@ def whatsapp_send_message(name_or_number: str, message: str) -> str:
         except Exception as exc:  # noqa: BLE001
             return f"Opened chat with {clean_target}, but could not type message: {exc}"
     return f"Could not find {clean_target} on WhatsApp to send message."
+
+
+def clean_temp_files() -> str:
+    """Safely clear temp files from user Temp and Windows Temp to reclaim disk space."""
+    import tempfile
+    cleaned_bytes = 0
+    cleaned_count = 0
+    temp_dirs = [Path(tempfile.gettempdir())]
+    win_temp = Path(os.environ.get("WINDIR", "C:\\Windows")) / "Temp"
+    if win_temp.exists() and win_temp.is_dir():
+        temp_dirs.append(win_temp)
+
+    for td in temp_dirs:
+        try:
+            for item in td.iterdir():
+                try:
+                    if item.is_file() or item.is_symlink():
+                        sz = item.stat().st_size
+                        item.unlink(missing_ok=True)
+                        cleaned_bytes += sz
+                        cleaned_count += 1
+                    elif item.is_dir():
+                        sz = sum(f.stat().st_size for f in item.glob("**/*") if f.is_file())
+                        shutil.rmtree(item, ignore_errors=True)
+                        cleaned_bytes += sz
+                        cleaned_count += 1
+                except Exception:
+                    continue
+        except Exception:
+            continue
+    mb = round(cleaned_bytes / (1024 * 1024), 1)
+    return f"Cleaned {cleaned_count} temporary files, freeing {mb} MB of space."
+
