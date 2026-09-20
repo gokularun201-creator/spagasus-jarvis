@@ -514,22 +514,90 @@ def _mark_bad(dev: int | None) -> None:
     _probe_cache = {"at": 0.0, "result": None}   # force a fresh probe next time
 
 
+WIRELESS_PATTERNS = re.compile(
+    r"bluetooth|bth|wireless|airpod|airdopes|rainbow|earbud|buds|hands-free|headset|headphone",
+    re.IGNORECASE
+)
+HEADSET_PATTERNS = re.compile(
+    r"headset|headphone|earbud|earphone|airpod|airdopes|rainbow|bluetooth|hands-free|wireless|buds",
+    re.IGNORECASE
+)
+
+
+def find_best_headset_mic() -> int | None:
+    """Find the best connected wireless earbuds or headset microphone."""
+    import sounddevice as sd
+    try:
+        devices = sd.query_devices()
+        # 1. First priority: explicit wireless/bluetooth earbuds or headset mic
+        for i, d in enumerate(devices):
+            if d.get("max_input_channels", 0) > 0 and i not in _bad_devices:
+                name = d.get("name", "")
+                if WIRELESS_PATTERNS.search(name) and "realtek" not in name.lower() and _device_valid(i):
+                    return i
+        # 2. Second priority: any non-realtek external headset mic
+        for i, d in enumerate(devices):
+            if d.get("max_input_channels", 0) > 0 and i not in _bad_devices:
+                name = d.get("name", "")
+                if HEADSET_PATTERNS.search(name) and "realtek" not in name.lower() and _device_valid(i):
+                    return i
+    except Exception:
+        pass
+    return None
+
+
+def find_best_output_device() -> int | None:
+    """Find the best output device (Wireless Earbuds > Headset > None for default speakers)."""
+    import sounddevice as sd
+    try:
+        devices = sd.query_devices()
+        # 1. First priority: explicit wireless/bluetooth earbuds or headphones
+        for i, d in enumerate(devices):
+            if d.get("max_output_channels", 0) > 0:
+                name = d.get("name", "")
+                if WIRELESS_PATTERNS.search(name) and "realtek" not in name.lower():
+                    return i
+        # 2. Second priority: any non-realtek external headset / headphones
+        for i, d in enumerate(devices):
+            if d.get("max_output_channels", 0) > 0:
+                name = d.get("name", "")
+                if HEADSET_PATTERNS.search(name) and "realtek" not in name.lower():
+                    return i
+    except Exception:
+        pass
+    return None
+
+
+def _decode_audio(path_or_bytes) -> tuple[np.ndarray, int]:
+    """Decode any audio file/bytes (MP3, WAV, etc.) to (int16 mono samples, sample_rate)."""
+    import av
+    container = av.open(str(path_or_bytes) if isinstance(path_or_bytes, Path) else path_or_bytes)
+    stream = container.streams.audio[0]
+    rate = stream.rate or 24000
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=rate)
+    chunks = []
+    for frame in container.decode(audio=0):
+        for rf in resampler.resample(frame):
+            chunks.append(rf.to_ndarray())
+    if not chunks:
+        return np.zeros(0, dtype=np.int16), rate
+    arr = np.concatenate(chunks, axis=1).squeeze()
+    return arr, rate
+
+
 def _find_working_mic(seconds: float = 0.8, passes: int = 1) -> int | None:
     """Pick the input device that actually hears sound - CONSERVATIVELY.
-
-    Windows machines often expose several "Microphone Array" entries and
-    the DEFAULT one can be dead while a sibling entry works. Probe each
-    real microphone entry briefly with the stream's native int16 format
-    and use the loudest LIVE one. But unlike before, this NEVER storms:
-    results are cached for 120 s (rapid open/close probing destabilizes
-    the Realtek WDM-KS driver - that probe storm was the recurring
-    deafness), devices that errored are remembered and skipped for 5 min,
-    and if NO entry hears sound (quiet room OR driver hiccup) the system
-    default is kept. Output loopbacks ("PC Speaker", "Stereo Mix",
-    mappers) are excluded - they look like inputs but carry no mic.
+    Prioritizes wireless earbuds / Bluetooth headsets whenever connected.
     """
     global _probe_cache
     now = time.time()
+
+    # Priority 1: Check for wireless earbuds / headset mic immediately
+    headset_mic = find_best_headset_mic()
+    if headset_mic is not None:
+        _probe_cache = {"at": now, "result": headset_mic}
+        return headset_mic
+
     if now - _probe_cache["at"] < 120:
         return _probe_cache["result"]
     # prune expired bad-device entries
@@ -785,6 +853,14 @@ class MicStream:
             # now would kill the audio mid-capture; defer to the next check
             print("[speech] capture in progress - deferring mic re-check", flush=True)
             return
+
+        # 1. Prioritize wireless earbuds / Bluetooth headset mic immediately
+        headset = find_best_headset_mic()
+        if headset is not None and self.device != headset:
+            print(f"[speech] wireless earbuds mic detected (device {headset}) - switching to it", flush=True)
+            self._swap_to(headset)
+            return
+
         if self.device is not None and not _device_valid(self.device):
             print("[speech] armed device vanished - falling back to the default mic",
                   flush=True)
@@ -820,16 +896,24 @@ class MicStream:
 
     def _watchdog(self) -> None:
         """Background health check. Re-checks the mic whenever something is
-        actually wrong: no stream, callback errors, a vanished device index,
-        an explicit recheck request (failed captures), or LONG silence
-        (~4.5 min on a real device / ~90 s on the fallback default). A quiet
-        room must never trigger a device SWITCH - it only re-probes and keeps
-        the current mic ("room is quiet - keeping the current mic")."""
+        actually wrong: wireless earbuds connected/disconnected, no stream,
+        callback errors, a vanished device index, or an explicit recheck request."""
         last_silence_check = 0.0
         while True:
             try:
-                # quick pass every ~30 s (or instantly on a recheck request)
-                if self._recheck_now.wait(timeout=30):
+                # Dynamic wireless earbuds monitor: check if earbuds connected or disconnected
+                headset = find_best_headset_mic()
+                if headset is not None and self.device != headset and not self.capture_on:
+                    self._rearm("wireless earbuds connected")
+                    time.sleep(2)
+                    continue
+                elif self.device is not None and not _device_valid(self.device) and not self.capture_on:
+                    self._rearm("current device disconnected")
+                    time.sleep(2)
+                    continue
+
+                # quick pass every ~20 s (or instantly on a recheck request)
+                if self._recheck_now.wait(timeout=20):
                     self._recheck_now.clear()
                     self._rearm("user requested re-check")
                     continue
@@ -1249,6 +1333,26 @@ class Tts:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
+    def _play_audio(self, path: str) -> None:
+        if self._cancel.is_set():
+            return
+        out_dev = find_best_output_device()
+        if out_dev is not None:
+            try:
+                import sounddevice as sd
+                arr, rate = _decode_audio(path)
+                if len(arr) > 0:
+                    sd.play(arr, rate, device=out_dev)
+                    while sd.get_stream() and sd.get_stream().active and not self._cancel.is_set():
+                        time.sleep(0.03)
+                    if self._cancel.is_set():
+                        sd.stop()
+                    return
+            except Exception as exc:  # noqa: BLE001
+                print(f"[speech] sounddevice direct headset playback failed ({exc}) - falling back to MCI", flush=True)
+
+        self._play_mci(path)
+
     def _play_mci(self, path: str) -> None:
         if self._cancel.is_set():
             return
@@ -1303,7 +1407,7 @@ class Tts:
             tmp = Path(os.environ.get("TEMP", ".")) / f"spagasus_tts_{cache_id}.mp3"
             if tmp.exists() and tmp.stat().st_size > 500:
                 self._notify_segment(text, idx, dur)
-                self._play_mci(str(tmp))
+                self._play_audio(str(tmp))
                 return
             mp3, words = asyncio.run(asyncio.wait_for(
                 edge_tts_stream(text, self.voice), timeout=4.5))
@@ -1314,7 +1418,7 @@ class Tts:
                 if words:
                     dur = int(words[-1]["t"] + words[-1]["d"])
                 self._notify_segment(text, idx, dur)
-                self._play_mci(str(tmp))
+                self._play_audio(str(tmp))
                 return
         except Exception:  # noqa: BLE001
             pass
@@ -1344,6 +1448,11 @@ class Tts:
         drop replies that are still being synthesized/queued, so a barge-in
         never gets a late reply spoken over it."""
         self._cancel.set()
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
         try:
             while not self.q.empty():
                 try:
