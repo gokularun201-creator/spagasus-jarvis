@@ -1065,6 +1065,17 @@
   // ==================================================================
   // AUDIO VOLUME ADJUST CONTROLS (EARBUDS & SPEAKERS)
   // ==================================================================
+  // Top bar volume controls (always visible at the top)
+  const topVolBadge = document.getElementById('topVolBadge');
+  const topVolIcon = document.getElementById('topVolIcon');
+  const topVolDevice = document.getElementById('topVolDevice');
+  const topVolDownBtn = document.getElementById('topVolDownBtn');
+  const topVolUpBtn = document.getElementById('topVolUpBtn');
+  const topVolSlider = document.getElementById('topVolSlider');
+  const topVolFill = document.getElementById('topVolFill');
+  const topVolVal = document.getElementById('topVolVal');
+
+  // Sidebar volume bar controls
   const volBar = document.getElementById('volBar');
   const volBadge = document.getElementById('volBadge');
   const volIcon = document.getElementById('volIcon');
@@ -1080,11 +1091,23 @@
 
   function updateVolumeUI(vol, isHeadset, devName) {
     currentVolume = Math.max(0, Math.min(100, parseInt(vol) || 0));
+    const iconText = isHeadset ? '🎧' : '🔊';
+    const labelText = isHeadset ? 'EARBUDS' : 'SPEAKERS';
+
+    // Update Top Bar
+    if (topVolSlider) topVolSlider.value = currentVolume;
+    if (topVolFill) topVolFill.style.width = currentVolume + '%';
+    if (topVolVal) topVolVal.textContent = currentVolume + '%';
+    if (topVolIcon) topVolIcon.textContent = iconText;
+    if (topVolDevice) topVolDevice.textContent = labelText;
+    if (topVolBadge && devName) topVolBadge.title = devName + ' (Click to toggle mute)';
+
+    // Update Sidebar
     if (volSlider) volSlider.value = currentVolume;
     if (volFill) volFill.style.width = currentVolume + '%';
     if (volPercent) volPercent.textContent = currentVolume + '%';
-    if (volIcon) volIcon.textContent = isHeadset ? '🎧' : '🔊';
-    if (volDeviceLabel) volDeviceLabel.textContent = isHeadset ? 'EARBUDS' : 'SPEAKERS';
+    if (volIcon) volIcon.textContent = iconText;
+    if (volDeviceLabel) volDeviceLabel.textContent = labelText;
     if (volBadge && devName) volBadge.title = devName + ' (Click to toggle mute)';
   }
 
@@ -1103,39 +1126,54 @@
       .catch(() => {});
   }
 
-  if (volSlider) {
-    volSlider.addEventListener('input', (e) => {
-      const v = parseInt(e.target.value);
-      if (volFill) volFill.style.width = v + '%';
-      if (volPercent) volPercent.textContent = v + '%';
-    });
-    volSlider.addEventListener('change', (e) => {
-      setVolumeServer({ volume: parseInt(e.target.value) });
-    });
+  function bindVolControls(slider, fill, percent, downBtn, upBtn, badge) {
+    if (slider) {
+      slider.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value);
+        if (fill) fill.style.width = v + '%';
+        if (percent) percent.textContent = v + '%';
+        if (slider === topVolSlider && volSlider) {
+          volSlider.value = v;
+          if (volFill) volFill.style.width = v + '%';
+          if (volPercent) volPercent.textContent = v + '%';
+        } else if (slider === volSlider && topVolSlider) {
+          topVolSlider.value = v;
+          if (topVolFill) topVolFill.style.width = v + '%';
+          if (topVolVal) topVolVal.textContent = v + '%';
+        }
+      });
+      slider.addEventListener('change', (e) => {
+        setVolumeServer({ volume: parseInt(e.target.value) });
+      });
+    }
+
+    if (downBtn) {
+      downBtn.addEventListener('click', () => {
+        setVolumeServer({ delta: -10 });
+      });
+    }
+
+    if (upBtn) {
+      upBtn.addEventListener('click', () => {
+        setVolumeServer({ delta: 10 });
+      });
+    }
+
+    if (badge) {
+      badge.addEventListener('click', () => {
+        if (currentVolume > 0) {
+          previousVolume = currentVolume;
+          setVolumeServer({ volume: 0 });
+        } else {
+          setVolumeServer({ volume: previousVolume || 80 });
+        }
+      });
+    }
   }
 
-  if (volDownBtn) {
-    volDownBtn.addEventListener('click', () => {
-      setVolumeServer({ delta: -10 });
-    });
-  }
-
-  if (volUpBtn) {
-    volUpBtn.addEventListener('click', () => {
-      setVolumeServer({ delta: 10 });
-    });
-  }
-
-  if (volBadge) {
-    volBadge.addEventListener('click', () => {
-      if (currentVolume > 0) {
-        previousVolume = currentVolume;
-        setVolumeServer({ volume: 0 });
-      } else {
-        setVolumeServer({ volume: previousVolume || 80 });
-      }
-    });
-  }
+  // Bind both Top Bar and Sidebar controls
+  bindVolControls(topVolSlider, topVolFill, topVolVal, topVolDownBtn, topVolUpBtn, topVolBadge);
+  bindVolControls(volSlider, volFill, volPercent, volDownBtn, volUpBtn, volBadge);
 
   // Fetch initial volume on dashboard start
   fetch('/api/volume')

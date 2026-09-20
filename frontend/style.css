@@ -96,12 +96,77 @@ body[data-status="SPEAKING"]  .chip .dot{ background:var(--green); box-shadow:0 
 body[data-status="ERROR"]     .chip .dot{ background:var(--red); box-shadow:0 0 10px var(--red); animation:blink .5s infinite; }
 @keyframes blink { 50% { opacity:.2; } }
 
+/* Top Bar Volume Control */
+.top-vol {
+  display:flex; align-items:center; gap:8px;
+  background:rgba(20,8,2,.88); border:1px solid rgba(255,154,61,.55);
+  border-radius:4px; padding:4px 11px; margin-bottom:1px;
+  box-shadow:0 0 18px rgba(255,154,61,.25), inset 0 0 10px rgba(255,154,61,.1);
+  font-family:Consolas,monospace; z-index:20;
+}
+.top-vol-badge {
+  display:flex; align-items:center; gap:5px; font-size:10.5px; font-weight:800;
+  letter-spacing:1px; color:#fff3e2; background:rgba(255,154,61,.22);
+  padding:3px 8px; border-radius:3px; border:1px solid rgba(255,154,61,.45);
+  cursor:pointer; user-select:none; transition:all .15s ease;
+}
+.top-vol-badge:hover {
+  background:rgba(255,154,61,.35); border-color:var(--cyan); box-shadow:0 0 10px rgba(255,154,61,.5);
+}
+.top-vol-btn {
+  background:rgba(28,12,2,.9); border:1px solid rgba(255,154,61,.5);
+  color:#fff; font-family:inherit; font-weight:800; font-size:12px;
+  padding:3px 9px; border-radius:3px; cursor:pointer; transition:all .15s ease;
+  user-select:none;
+}
+.top-vol-btn:hover {
+  background:rgba(255,154,61,.3); border-color:var(--cyan);
+  box-shadow:0 0 10px rgba(255,154,61,.6); transform:scale(1.05);
+}
+.top-vol-btn:active {
+  transform:scale(0.95);
+}
+.top-vol-track {
+  position:relative; width:110px; display:flex; align-items:center; height:18px;
+}
+.top-vol-slider {
+  -webkit-appearance:none; appearance:none; width:100%; height:6px;
+  background:rgba(255,154,61,.2); border:1px solid rgba(255,154,61,.35);
+  border-radius:3px; outline:none; cursor:pointer; position:relative; z-index:2;
+}
+.top-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance:none; appearance:none; width:14px; height:14px;
+  border-radius:50%; background:radial-gradient(circle at 40% 35%, #fff4e4, #ffa53d);
+  border:1.5px solid #fff; box-shadow:0 0 8px rgba(255,154,61,.9);
+  cursor:pointer; transition:transform .1s ease;
+}
+.top-vol-slider::-webkit-slider-thumb:hover {
+  transform:scale(1.2);
+}
+.top-vol-slider::-moz-range-thumb {
+  width:14px; height:14px; border-radius:50%;
+  background:radial-gradient(circle at 40% 35%, #fff4e4, #ffa53d);
+  border:1.5px solid #fff; box-shadow:0 0 8px rgba(255,154,61,.9);
+  cursor:pointer;
+}
+.top-vol-fill {
+  position:absolute; left:0; top:6px; height:6px;
+  background:linear-gradient(90deg, rgba(255,138,30,.7), rgba(255,205,130,.98));
+  border-radius:3px 0 0 3px; pointer-events:none; z-index:1;
+}
+.top-vol-val {
+  font-size:11.5px; font-weight:800; letter-spacing:1px; color:#fff3e2;
+  min-width:38px; text-align:right; text-shadow:0 0 8px rgba(255,154,61,.5);
+}
+
 /* main: the core floats dead-center; side panels + feed float on either side */
 .main { flex:1; min-height:0; position:relative; margin-top:10px; }
 
 /* ---------- left: stats / devices / controls ---------- */
 .side { position:absolute; left:0; top:0; bottom:0; width:min(300px, 22vw); z-index:2;
-  display:flex; flex-direction:column; gap:14px; overflow-y:auto; padding-right:4px; }
+  display:flex; flex-direction:column; gap:10px; overflow:hidden; padding-right:4px; }
+.side .lower { flex:1; min-height:0; overflow-y:auto; padding-right:2px; }
+.side .controls { margin-top:auto; }
 
 /* ---------- center: the big core, always dead-center ---------- */
 .center { position:absolute; inset:0; z-index:1;
@@ -687,9 +752,9 @@ body.hidden-tab *, body.hidden-tab *::before, body.hidden-tab *::after {
 /* Volume Control Bar */
 .vol-bar {
   display:flex; align-items:center; gap:8px;
-  background:rgba(20,8,2,.75); border:1px solid rgba(255,154,61,.35);
-  border-radius:4px; padding:6px 10px; margin-bottom:8px;
-  box-shadow:0 2px 12px rgba(0,0,0,.4); font-family:Consolas,monospace;
+  background:rgba(20,8,2,.92); border:1.5px solid rgba(255,154,61,.65);
+  border-radius:4px; padding:7px 10px; margin-bottom:8px;
+  box-shadow:0 0 16px rgba(255,154,61,.3), 0 2px 12px rgba(0,0,0,.6); font-family:Consolas,monospace;
 }
 .vol-badge {
   display:flex; align-items:center; gap:5px; font-size:10px; font-weight:700;
