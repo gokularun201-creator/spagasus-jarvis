@@ -118,7 +118,7 @@ def _query_chat_completions(base_url: str, model: str, api_key: str | None, mess
     payload = {
         "model": model,
         "messages": messages,
-        "max_tokens": 300,
+        "max_tokens": 400,
     }
     if stream:
         payload["stream"] = True
@@ -139,9 +139,10 @@ def llm_chat(history: list[dict], user_text: str) -> str | None:
     # 1. Prioritize Local Gemma 4 (Ollama) if enabled
     if LOCAL_LLM_ENABLED:
         try:
-            with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=12) as resp:
+            with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=90) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
-                content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+                msg = (data.get("choices") or [{}])[0].get("message", {})
+                content = (msg.get("content") or msg.get("reasoning") or "").strip()
                 if content:
                     return content
         except Exception:
@@ -153,7 +154,8 @@ def llm_chat(history: list[dict], user_text: str) -> str | None:
         try:
             with _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=False, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
-                return data["choices"][0]["message"]["content"].strip()
+                msg = (data.get("choices") or [{}])[0].get("message", {})
+                return (msg.get("content") or msg.get("reasoning") or "").strip()
         except Exception as exc:  # noqa: BLE001
             return f"(LLM unavailable: {exc})"
 
@@ -173,7 +175,7 @@ def llm_chat_stream(history: list[dict], user_text: str):
         # 1. Try local Gemma 4 (Ollama)
         if LOCAL_LLM_ENABLED:
             try:
-                resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=15)
+                resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=90)
                 yielded_any = False
                 with resp:
                     for raw in resp:
@@ -190,7 +192,7 @@ def llm_chat_stream(history: list[dict], user_text: str):
                         except ValueError:
                             continue
                         delta = (obj.get("choices") or [{}])[0].get("delta") or {}
-                        content = delta.get("content")
+                        content = delta.get("content") or delta.get("reasoning")
                         if content:
                             yielded_any = True
                             yield content
