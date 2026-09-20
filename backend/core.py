@@ -46,9 +46,12 @@ JOKES = [
 ]
 
 SYSTEM_PROMPT = (
-    "You are SPAGASUS JARVIS, a calm, professional, slightly futuristic AI "
-    "assistant for Gokul. Answer concisely in 1-2 sentences. Never claim you "
-    "performed a computer action - those are handled by tools, not by you."
+    "You are SPAGASUS JARVIS, an advanced, calm, professional, slightly futuristic AI "
+    "assistant for Gokul running directly on his Windows system. You are equipped with "
+    "real-time voice recognition and audio capabilities supporting wireless earbuds, headsets, "
+    "and microphones. You can hear Gokul's voice through his connected mic/earbuds and speak "
+    "replies directly to his earbuds/speakers. Answer concisely in 1-2 sentences. Never claim "
+    "you performed a computer action that wasn't executed."
 )
 
 STATUS_STANDBY = "STANDBY"
@@ -595,6 +598,22 @@ class Core:
             if not parts:
                 return "No devices connected yet. The mobile app can pair via the phone token."
             return "Connected devices: " + "; ".join(parts) + "."
+
+        # audio / microphone / wireless earbuds status check
+        if re.search(r"(?:can\s+you\s+(?:hear|ear)\s+me|mic(?:rophone)?\s+status|check\s+mic|earbud|wireless\s+mic|(?:hear|ear)\s+(?:in|through)\s+(?:the\s+)?(?:wireless|mic|earbud)|wireless\s+earbud)", t):
+            from .speech import find_best_headset_mic, find_best_output_device
+            import sounddevice as sd
+            in_dev = find_best_headset_mic()
+            out_dev = find_best_output_device()
+            in_name = sd.query_devices(in_dev)["name"] if in_dev is not None else None
+            out_name = sd.query_devices(out_dev)["name"] if out_dev is not None else None
+            if in_dev is not None and out_dev is not None:
+                return f"Yes boss, I'm connected to your wireless earbuds ({in_name}). I am listening through your earbuds mic and speaking directly into your earbuds."
+            elif in_dev is not None:
+                return f"Yes boss, I can hear you clearly through your wireless earbuds microphone ({in_name})."
+            elif out_dev is not None:
+                return f"Yes boss, I am speaking directly to your wireless earbuds ({out_name})."
+            return "Yes boss, I can hear you clearly through the system microphone."
 
         # system monitoring
         if re.search(r"system|status|usage|cpu|ram|memory|battery|storage|disk|network|temperature|apps running", t):

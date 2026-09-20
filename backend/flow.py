@@ -75,7 +75,9 @@ def clean_flow_speech(text: str) -> str:
         (r"\b(notepade|not pad)\b", "Notepad"),
         (r"\b(calculater)\b", "Calculator"),
         (r"\b(one\s+two\s+three\s+four|1\s*2\s*3\s*4)\b", "1234"),
-        (r"\b(five\s+four\s+four\s+four|5\s*4\s*4\s*4)\b", "5444"),
+        (r"\b(?:you\s+can\s+|can\s+you\s+)?(?:ear|hear)\s+(?:in\s+|through\s+)?(?:the\s+)?wireless\s+(?:mic|microphone)\b", "can you hear me on wireless mic"),
+        (r"\b(ear\s+the\s+voice|ear\s+voice|here\s+the\s+voice)\b", "hear the voice"),
+        (r"\b(air\s*dopes|air\s*drops|air\s*pods|air\s*dop)\b", "Airdopes"),
         (r"(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})\s+(?:connect\s+this|connect)", r"connect phone \1"),
         (r"connect\s+this\s+(\d{1,3}(?:\.\d{1,3}){3}:\d{2,5})", r"connect phone \1"),
     ]

@@ -529,18 +529,20 @@ def find_best_headset_mic() -> int | None:
     import sounddevice as sd
     try:
         devices = sd.query_devices()
-        # 1. First priority: explicit wireless/bluetooth earbuds or headset mic
         for i, d in enumerate(devices):
             if d.get("max_input_channels", 0) > 0 and i not in _bad_devices:
                 name = d.get("name", "")
-                if WIRELESS_PATTERNS.search(name) and "realtek" not in name.lower() and _device_valid(i):
-                    return i
-        # 2. Second priority: any non-realtek external headset mic
-        for i, d in enumerate(devices):
-            if d.get("max_input_channels", 0) > 0 and i not in _bad_devices:
-                name = d.get("name", "")
-                if HEADSET_PATTERNS.search(name) and "realtek" not in name.lower() and _device_valid(i):
-                    return i
+                if name.startswith("@") or "bthhfenum" in name.lower() or "realtek" in name.lower():
+                    continue
+                if WIRELESS_PATTERNS.search(name) or HEADSET_PATTERNS.search(name):
+                    try:
+                        s = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", device=i)
+                        s.start()
+                        s.stop()
+                        s.close()
+                        return i
+                    except Exception:
+                        continue
     except Exception:
         pass
     return None
@@ -551,18 +553,28 @@ def find_best_output_device() -> int | None:
     import sounddevice as sd
     try:
         devices = sd.query_devices()
-        # 1. First priority: explicit wireless/bluetooth earbuds or headphones
+        best_headset = None
         for i, d in enumerate(devices):
             if d.get("max_output_channels", 0) > 0:
                 name = d.get("name", "")
-                if WIRELESS_PATTERNS.search(name) and "realtek" not in name.lower():
-                    return i
-        # 2. Second priority: any non-realtek external headset / headphones
-        for i, d in enumerate(devices):
-            if d.get("max_output_channels", 0) > 0:
-                name = d.get("name", "")
-                if HEADSET_PATTERNS.search(name) and "realtek" not in name.lower():
-                    return i
+                if name.startswith("@") or "bthhfenum" in name.lower() or "realtek" in name.lower():
+                    continue
+                if WIRELESS_PATTERNS.search(name) or HEADSET_PATTERNS.search(name):
+                    try:
+                        ch = min(2, d.get("max_output_channels", 2))
+                        s = sd.OutputStream(samplerate=44100, channels=ch, dtype="int16", device=i)
+                        s.start()
+                        s.stop()
+                        s.close()
+                        # Prioritize stereo headphones/earbuds profile for high quality audio
+                        if any(k in name.lower() for k in ["headphone", "buds", "airdopes", "airpod"]):
+                            return i
+                        if best_headset is None:
+                            best_headset = i
+                    except Exception:
+                        continue
+        if best_headset is not None:
+            return best_headset
     except Exception:
         pass
     return None
@@ -797,20 +809,16 @@ class MicStream:
         self._recheck_now.set()
 
     def _swap_to(self, dev: int | None) -> None:
-        """Stop the current stream and (re)open on `dev` (None = default).
-
-        Verifies the new device actually produces audio before committing:
-        if the room has sound (the default hears it) but the new entry is
-        silent, it's a dead entry - remember it and fall back to the default.
-        """
+        """Stop the current stream and (re)open on `dev` (None = default)."""
         global _last_switch_at
         try:
             if self._stream:
                 self._stream.stop()
+                self._stream.close()
                 self._stream = None
         except Exception:  # noqa: BLE001
             pass
-        time.sleep(0.8)
+        time.sleep(0.4)
         self.device = dev
         self.level = 0.0
         self._peak = 0.0
@@ -821,19 +829,28 @@ class MicStream:
             if dev is not None:
                 self._swap_to(None)
             return
+        _bad_devices.pop(dev, None)
         _last_switch_at = time.time()
         _save_mic(dev)
-        # verify: a dead entry opens fine but returns silence even while the
-        # room has sound - catch that instead of going deaf on it for hours
+        # verify internal mics only (external bluetooth devices cannot capture concurrently)
         if dev is not None:
-            time.sleep(0.5)
-            rms = _device_hears(dev, 0.5)
-            default_rms = _device_hears(None, 0.5)
-            if rms < 0.0008 and default_rms > 0.0015:
-                print("[speech] new device silent while the room has sound - "
-                      "falling back to the default", flush=True)
-                _mark_bad(dev)
-                self._swap_to(None)
+            is_headset = False
+            try:
+                import sounddevice as sd
+                dname = sd.query_devices(dev).get("name", "")
+                if WIRELESS_PATTERNS.search(dname) or HEADSET_PATTERNS.search(dname):
+                    is_headset = True
+            except Exception:
+                pass
+            if not is_headset:
+                time.sleep(0.4)
+                rms = _device_hears(dev, 0.4)
+                default_rms = _device_hears(None, 0.4)
+                if rms < 0.0008 and default_rms > 0.0015:
+                    print("[speech] new device silent while the room has sound - "
+                          "falling back to the default", flush=True)
+                    _mark_bad(dev)
+                    self._swap_to(None)
 
     def _rearm(self, reason: str) -> None:
         """Re-probe for a live mic and switch to it.
@@ -895,30 +912,31 @@ class MicStream:
         self._swap_to(found)
 
     def _watchdog(self) -> None:
-        """Background health check. Re-checks the mic whenever something is
-        actually wrong: wireless earbuds connected/disconnected, no stream,
-        callback errors, a vanished device index, or an explicit recheck request."""
+        """Background health check. Dynamically monitors wireless earbuds
+        connect/disconnect, streams, and callback errors."""
         last_silence_check = 0.0
         while True:
             try:
                 # Dynamic wireless earbuds monitor: check if earbuds connected or disconnected
                 headset = find_best_headset_mic()
                 if headset is not None and self.device != headset and not self.capture_on:
-                    self._rearm("wireless earbuds connected")
-                    time.sleep(2)
+                    print(f"[speech] wireless earbuds connected (device {headset}) - switching to it", flush=True)
+                    self._swap_to(headset)
+                    time.sleep(1.5)
                     continue
                 elif self.device is not None and not _device_valid(self.device) and not self.capture_on:
-                    self._rearm("current device disconnected")
-                    time.sleep(2)
+                    print("[speech] current device disconnected - reverting to default mic", flush=True)
+                    self._swap_to(None)
+                    time.sleep(1.5)
                     continue
 
-                # quick pass every ~20 s (or instantly on a recheck request)
-                if self._recheck_now.wait(timeout=20):
+                # quick pass every ~2.5 s (or instantly on a recheck request)
+                if self._recheck_now.wait(timeout=2.5):
                     self._recheck_now.clear()
                     self._rearm("user requested re-check")
                     continue
                 self._peak = 0.0
-                time.sleep(5)
+                time.sleep(2.5)
                 if self._stream is None:
                     self._rearm("no stream")
                     continue
@@ -932,7 +950,7 @@ class MicStream:
                 if time.time() - last_silence_check >= 90:
                     last_silence_check = time.time()
                     self._peak = 0.0
-                    time.sleep(30)
+                    time.sleep(20)
                     heard = self._peak
                     if self.device is None:
                         # on the fallback default: keep hunting for a live mic
@@ -952,19 +970,29 @@ class MicStream:
         import sounddevice as sd  # noqa: F401  (import check)
         self.on_wake = on_wake
         self.on_wake_word = on_wake_word
-        saved = _load_saved_mic()
-        if (saved is not None and _device_valid(saved) and saved not in _bad_devices):
-            saved_rms = _device_hears(saved, 0.4)
-            default_rms = _device_hears(None, 0.4)
-            if saved_rms > 0.003 and saved_rms >= default_rms * 0.7:
-                self.device = saved
-                print(f"[speech] using live saved mic device {saved} (rms={saved_rms:.4f})", flush=True)
+        headset = find_best_headset_mic()
+        if headset is not None:
+            self.device = headset
+            _save_mic(headset)
+            try:
+                hname = sd.query_devices(headset).get("name", f"device {headset}")
+                print(f"[speech] wireless earbuds mic detected on startup: {hname}", flush=True)
+            except Exception:
+                print(f"[speech] wireless earbuds mic detected on startup (device {headset})", flush=True)
+        else:
+            saved = _load_saved_mic()
+            if (saved is not None and _device_valid(saved) and saved not in _bad_devices):
+                saved_rms = _device_hears(saved, 0.4)
+                default_rms = _device_hears(None, 0.4)
+                if saved_rms > 0.003 and saved_rms >= default_rms * 0.7:
+                    self.device = saved
+                    print(f"[speech] using live saved mic device {saved} (rms={saved_rms:.4f})", flush=True)
+                else:
+                    self.device = None
+                    print(f"[speech] saved device {saved} is quiet (rms={saved_rms:.4f}) - using system default mic (rms={default_rms:.4f})", flush=True)
             else:
                 self.device = None
-                print(f"[speech] saved device {saved} is quiet (rms={saved_rms:.4f}) - using system default mic (rms={default_rms:.4f})", flush=True)
-        else:
-            self.device = None
-            print("[speech] using system default microphone", flush=True)
+                print("[speech] using system default microphone", flush=True)
         if self.threshold is None:
             try:
                 self.calibrate()
@@ -1372,6 +1400,23 @@ class Tts:
     def _play_fallback(self, text: str) -> None:
         if self._cancel.is_set():
             return
+        out_dev = find_best_output_device()
+        if out_dev is not None:
+            tmp_wav = Path(os.environ.get("TEMP", ".")) / f"spagasus_fallback_{os.getpid()}.wav"
+            try:
+                engine = _get_pyttsx3()
+                engine.save_to_file(text, str(tmp_wav))
+                engine.runAndWait()
+                if tmp_wav.exists() and tmp_wav.stat().st_size > 100:
+                    self._play_audio(str(tmp_wav))
+                    try:
+                        tmp_wav.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
+
         try:
             import pythoncom  # type: ignore
             import win32com.client  # type: ignore
