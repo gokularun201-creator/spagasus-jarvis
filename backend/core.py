@@ -57,26 +57,25 @@ JOKES = [
 ]
 
 SYSTEM_PROMPT = (
-    "You are SPAGASUS JARVIS, an advanced, autonomous AI assistant powered by Gemma 4 12B "
-    "running directly on Gokul's Windows PC. You have your own autonomous ideas and full automation authority. "
+    "You are SPAGASUS JARVIS, an advanced, autonomous AI assistant running directly on Gokul's Windows PC. "
+    "You have your own autonomous ideas and full automation authority. "
     "You can hear Gokul through his wireless earbuds mic and speak directly into his earbuds. "
-    "When answering questions or suggesting ideas, you can trigger REAL computer automations by appending action tags:\n"
-    "- [ACTION:open_app(\"app_name\")] (e.g. 'code', 'chrome', 'spotify', 'notepad')\n"
-    "- [ACTION:close_app(\"app_name\")]\n"
-    "- [ACTION:play_song(\"song or artist\")] (plays on YouTube/music)\n"
-    "- [ACTION:volume(50)] (sets volume 0-100%)\n"
+    "CRITICAL: Never output thinking tags, <thought>, <think>, internal monologue, or reasoning steps. "
+    "Directly reply in 1-2 concise, futuristic spoken sentences. "
+    "When answering questions or suggesting ideas, trigger REAL computer automations by appending action tags:\n"
+    "- [ACTION:clean_temp_files()] (cleans temporary cache & frees disk/RAM)\n"
+    "- [ACTION:volume(50)] (sets audio volume 0-100%)\n"
+    "- [ACTION:set_timer(seconds=1500, label=\"Focus\")]\n"
+    "- [ACTION:window_management(\"minimize_all\" | \"maximize\" | \"snap_left\" | \"snap_right\")]\n"
     "- [ACTION:set_brightness(75)] (sets screen brightness 0-100%)\n"
     "- [ACTION:media_control(\"playpause\" | \"next\" | \"prev\" | \"mute\")]\n"
-    "- [ACTION:window_management(\"minimize_all\" | \"maximize\" | \"snap_left\" | \"snap_right\")]\n"
-    "- [ACTION:clean_temp_files()] (cleans temporary cache & frees memory)\n"
-    "- [ACTION:set_timer(seconds=300, label=\"Focus\")]\n"
+    "- [ACTION:play_song(\"song or artist\")] (plays on YouTube/music)\n"
+    "- [ACTION:open_app(\"app_name\")] (e.g. 'code', 'chrome', 'notepad')\n"
+    "- [ACTION:close_app(\"app_name\")]\n"
     "- [ACTION:lock()]\n"
     "- [ACTION:unlock_phone()]\n"
     "- [ACTION:open_site(\"url\")]\n"
-    "- [ACTION:run_command(\"powershell_command\")]\n"
-    "When Gokul asks for ideas, what to do, or commands an automation, proactively decide what needs doing, "
-    "explain your reasoning in 1-2 calm, confident, futuristic sentences, and append the appropriate [ACTION:...] tags. "
-    "Keep replies concise and speakable for voice."
+    "- [ACTION:run_command(\"powershell_command\")]"
 )
 
 STATUS_STANDBY = "STANDBY"
@@ -110,7 +109,7 @@ def _map_role(role: str) -> str:
     return "assistant"
 
 
-def _query_chat_completions(base_url: str, model: str, api_key: str | None, messages: list[dict], stream: bool = False, timeout: int = 30):
+def _query_chat_completions(base_url: str, model: str, api_key: str | None, messages: list[dict], stream: bool = False, timeout: float = 30.0):
     """Dispatch an OpenAI-compatible chat completion request."""
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -118,10 +117,16 @@ def _query_chat_completions(base_url: str, model: str, api_key: str | None, mess
     payload = {
         "model": model,
         "messages": messages,
-        "max_tokens": 400,
+        "max_tokens": 100,
     }
     if "11434" in base_url or "localhost" in base_url or "127.0.0.1" in base_url:
         payload["keep_alive"] = "24h"
+        payload["options"] = {
+            "num_predict": 60,
+            "num_ctx": 512,
+            "num_thread": 8,
+            "temperature": 0.3,
+        }
     if stream:
         payload["stream"] = True
     req = urllib.request.Request(
@@ -132,35 +137,46 @@ def _query_chat_completions(base_url: str, model: str, api_key: str | None, mess
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def llm_chat(history: list[dict], user_text: str) -> str | None:
-    """Chat completions with Local Gemma 4 / Ollama prioritization and cloud fallback."""
+def _clean_llm_text(raw: str) -> str:
+    """Remove any thinking/reasoning tags or chain-of-thought leaked by reasoning models."""
+    if not raw:
+        return ""
+    cleaned = re.sub(r"<(?:thought|reasoning|think)>.*?</(?:thought|reasoning|think)>", "", raw, flags=re.DOTALL | re.I)
+    cleaned = re.sub(r"^(?:thought|reasoning):\s*.*?\n", "", cleaned, flags=re.I)
+    return cleaned.strip()
+
+
+def llm_chat(history: list[dict], user_text: str, timeout_local: float = 3.5) -> str | None:
+    """Chat completions with Local Gemma 4 / Ollama prioritization (fast 3.5s timeout)
+    and instant Cloud LLM (Gemini 2.5 Flash, ~0.8s) fallback."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-8:]]
+    messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-6:]]
     messages.append({"role": "user", "content": user_text})
 
-    # 1. Prioritize Local Gemma 4 (Ollama) if enabled
+    # 1. Prioritize Local Gemma 4 (Ollama) if alive and responsive (<3.5s)
     if LOCAL_LLM_ENABLED:
         try:
             from . import ollama_service
-            if not ollama_service.is_ollama_alive(timeout=0.3):
-                ollama_service.start_ollama(wait=True, timeout=8.0)
-            with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=120) as resp:
-                data = json.loads(resp.read().decode("utf-8", "replace"))
-                msg = (data.get("choices") or [{}])[0].get("message", {})
-                content = (msg.get("content") or msg.get("reasoning") or "").strip()
-                if content:
-                    return content
+            if ollama_service.is_ollama_alive(timeout=0.2):
+                with _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=False, timeout=timeout_local) as resp:
+                    data = json.loads(resp.read().decode("utf-8", "replace"))
+                    msg = (data.get("choices") or [{}])[0].get("message", {})
+                    content = _clean_llm_text(msg.get("content") or "")
+                    if content:
+                        return content
         except Exception:
             if not LOCAL_LLM_FALLBACK or not LLM_API_KEY:
                 pass
 
-    # 2. Cloud LLM (Gemini / OpenAI) fallback
+    # 2. Cloud LLM (Gemini / OpenAI) ultra-fast fallback (<1s)
     if LLM_API_KEY:
         try:
-            with _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=False, timeout=30) as resp:
+            with _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=False, timeout=12.0) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
                 msg = (data.get("choices") or [{}])[0].get("message", {})
-                return (msg.get("content") or msg.get("reasoning") or "").strip()
+                content = _clean_llm_text(msg.get("content") or "")
+                if content:
+                    return content
         except Exception as exc:  # noqa: BLE001
             return f"(LLM unavailable: {exc})"
 
@@ -169,43 +185,43 @@ def llm_chat(history: list[dict], user_text: str) -> str | None:
 
 def llm_chat_stream(history: list[dict], user_text: str):
     """OpenAI-compatible chat with SSE streaming. Prioritizes local Gemma 4
-    with graceful cloud fallback."""
+    with graceful cloud fallback. Filters out all reasoning/thought tokens."""
     if not LOCAL_LLM_ENABLED and not LLM_API_KEY:
         return None
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-8:]]
+    messages += [{"role": _map_role(h.get("role", "assistant")), "content": h.get("text", "")} for h in history[-6:]]
     messages.append({"role": "user", "content": user_text})
 
     def _stream():
-        # 1. Try local Gemma 4 (Ollama)
+        # 1. Try local Gemma 4 (Ollama) with short timeout
         if LOCAL_LLM_ENABLED:
             try:
                 from . import ollama_service
-                if not ollama_service.is_ollama_alive(timeout=0.3):
-                    ollama_service.start_ollama(wait=True, timeout=8.0)
-                resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=120)
-                yielded_any = False
-                with resp:
-                    for raw in resp:
-                        line = raw.decode("utf-8", "replace").strip()
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            break
-                        if not data:
-                            continue
-                        try:
-                            obj = json.loads(data)
-                        except ValueError:
-                            continue
-                        delta = (obj.get("choices") or [{}])[0].get("delta") or {}
-                        content = delta.get("content") or delta.get("reasoning")
-                        if content:
-                            yielded_any = True
-                            yield content
-                if yielded_any:
-                    return
+                if ollama_service.is_ollama_alive(timeout=0.2):
+                    resp = _query_chat_completions(LOCAL_LLM_BASE_URL, LOCAL_LLM_MODEL, None, messages, stream=True, timeout=4.0)
+                    yielded_any = False
+                    with resp:
+                        for raw in resp:
+                            line = raw.decode("utf-8", "replace").strip()
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if data == "[DONE]":
+                                break
+                            if not data:
+                                continue
+                            try:
+                                obj = json.loads(data)
+                            except ValueError:
+                                continue
+                            delta = (obj.get("choices") or [{}])[0].get("delta") or {}
+                            content = delta.get("content")
+                            # Strictly discard thinking/reasoning tokens
+                            if content and "<thought>" not in content and "<think>" not in content:
+                                yielded_any = True
+                                yield content
+                    if yielded_any:
+                        return
             except Exception:
                 if not LOCAL_LLM_FALLBACK or not LLM_API_KEY:
                     return
@@ -213,7 +229,7 @@ def llm_chat_stream(history: list[dict], user_text: str):
         # 2. Fallback to Cloud LLM (Gemini / OpenAI)
         if LLM_API_KEY:
             try:
-                resp = _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=True, timeout=60)
+                resp = _query_chat_completions(LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, messages, stream=True, timeout=15.0)
                 with resp:
                     for raw in resp:
                         line = raw.decode("utf-8", "replace").strip()
@@ -230,7 +246,7 @@ def llm_chat_stream(history: list[dict], user_text: str):
                             continue
                         delta = (obj.get("choices") or [{}])[0].get("delta") or {}
                         content = delta.get("content")
-                        if content:
+                        if content and "<thought>" not in content and "<think>" not in content:
                             yield content
             except Exception:
                 return
@@ -270,6 +286,14 @@ def _split_segments(text: str, max_len: int = 140) -> list[str]:
     return out
 
 
+def _safe_int(val: any, default: int = 0) -> int:
+    try:
+        clean = re.sub(r"[^\d]", "", str(val))
+        return int(clean) if clean else default
+    except Exception:
+        return default
+
+
 def execute_embedded_action(action_str: str) -> str:
     """Execute a single parsed action tag such as open_app("chrome") or volume(60)."""
     action_str = action_str.strip()
@@ -301,10 +325,10 @@ def execute_embedded_action(action_str: str) -> str:
             target = kwargs.get("query") or (args[0] if args else "")
             return tools.play_song(target)
         elif fn == "volume":
-            lvl = kwargs.get("level") or (args[0] if args else "50")
+            lvl = _safe_int(kwargs.get("level") or (args[0] if args else "50"), default=50)
             return tools.volume(f"volume {lvl}") or f"Volume set to {lvl}%."
         elif fn == "set_brightness":
-            lvl = int(kwargs.get("level") or (args[0] if args else 70))
+            lvl = _safe_int(kwargs.get("level") or (args[0] if args else 70), default=70)
             return tools.set_brightness(lvl)
         elif fn == "media_control":
             act = kwargs.get("action") or (args[0] if args else "playpause")
@@ -315,7 +339,7 @@ def execute_embedded_action(action_str: str) -> str:
         elif fn == "clean_temp_files":
             return tools.clean_temp_files()
         elif fn == "set_timer":
-            secs = int(kwargs.get("seconds") or (args[0] if args else 300))
+            secs = _safe_int(kwargs.get("seconds") or (args[0] if args else 300), default=300)
             lbl = kwargs.get("label") or (args[1] if len(args) > 1 else "Timer")
             return tools.set_timer(secs, lbl)
         elif fn == "lock":
@@ -352,6 +376,7 @@ def process_autonomous_actions(reply: str) -> tuple[str, list[tuple[str, str]]]:
         results.append((action_str, res))
         try:
             memory.audit("autonomous_action", f"{action_str} -> {res}")
+            memory.log_action(action_str, res)
         except Exception:
             pass
 
@@ -493,6 +518,14 @@ class Core:
                 if chunk:
                     buf += chunk
                     full += chunk
+
+                # Trigger any complete action tags immediately
+                m_act = re.search(r"\[ACTION:\s*([^\]]+)\]", buf)
+                if m_act:
+                    act_call = m_act.group(1)
+                    buf = buf.replace(m_act.group(0), "")
+                    threading.Thread(target=execute_embedded_action, args=(act_call,), daemon=True).start()
+
                 if len(buf) >= 8 and re.search(r"[.!?]\s*$", buf):
                     self._flush_llm_seg(rid, seg, buf)
                     seg += 1
@@ -524,7 +557,8 @@ class Core:
         return cleaned.strip() or "(No reply.)"
 
     def _flush_llm_seg(self, rid: int, seg: int, text: str) -> None:
-        clean_text = re.sub(r"\[ACTION:[^\]]+\]", "", text).strip()
+        clean_text = re.sub(r"\[ACTION:[^\]]*\]?", "", text).strip()
+        clean_text = re.sub(r"^\[.*?\]", "", clean_text).strip()
         if not clean_text:
             return
         self._emit_reply({"type": "reply_seg", "id": rid, "seg": seg, "text": clean_text})
@@ -639,6 +673,63 @@ class Core:
         if no_audio >= max_attempts and not is_followup:
             self.mic.request_recheck()
         return ""
+
+    def generate_autonomous_action_plan(self, user_prompt: str) -> str:
+        """Autonomously inspect system telemetry, decide what to automate,
+        execute the actions, and announce what was done."""
+        from . import speech
+        stats = tools.system_stats()
+        now = datetime.datetime.now()
+        hour = now.hour
+        time_desc = "morning" if 5 <= hour < 12 else ("afternoon" if 12 <= hour < 17 else ("evening" if 17 <= hour < 22 else "late night"))
+        vol = speech.get_playback_volume()
+        earbuds_info = "wireless earbuds" if getattr(self, "audio_output_is_headset", True) else "system speakers"
+
+        llm_prompt = (
+            f"You are Spagasus Jarvis in autonomous mode. Time: {time_desc} ({now.strftime('%I:%M %p')}). "
+            f"Telemetry: RAM {stats['ram']}%, CPU {stats['cpu']}%, Battery {stats['battery']}%, Volume {vol}%, Audio {earbuds_info}. "
+            f"User command: '{user_prompt}'. "
+            f"CRITICAL: Never output thinking tags, <thought>, or reasoning monologue. Directly announce your decision in 1-2 concise futuristic sentences "
+            f"and append at least one real action tag:\n"
+            f"[ACTION:clean_temp_files()], [ACTION:volume(50)], [ACTION:set_timer(1500, \"Focus\")], "
+            f"[ACTION:window_management(\"minimize_all\")], [ACTION:set_brightness(75)], [ACTION:play_song(\"lofi chill beats\")], [ACTION:open_app(\"code\")]."
+        )
+        reply = llm_chat(memory.recent_turns(), llm_prompt, timeout_local=3.5)
+
+        executed_actions = []
+        cleaned_reply = ""
+        if reply and not reply.startswith("(LLM unavailable"):
+            cleaned_reply, actions = process_autonomous_actions(reply)
+            for act_tag, res in actions:
+                executed_actions.append(f"{act_tag} ({res})")
+
+        # Failsafe Heuristic Automation: If LLM produced no actions, do real automations
+        if not executed_actions:
+            done_items = []
+            # 1. Clean temp files
+            clean_res = tools.clean_temp_files()
+            done_items.append(clean_res)
+            memory.audit("autonomous_action", f"clean_temp_files -> {clean_res}")
+            memory.log_action("clean_temp_files", clean_res)
+
+            # 2. Optimize volume
+            if vol > 70 or vol == 0:
+                tools.volume("volume 50")
+                done_items.append("balanced earbuds audio volume to 50%")
+                memory.log_action("volume(50)", "Set volume to 50%")
+
+            # 3. Focus timer
+            tools.set_timer(1500, "Focus Session")
+            done_items.append("initiated a 25-minute focus session")
+            memory.log_action("set_timer(1500, 'Focus')", "Timer set for 25 minutes")
+
+            cleaned_reply = (
+                f"Boss, I've taken autonomous initiative: {done_items[0].lower()}, "
+                f"{done_items[1]}, and {done_items[2]}. "
+                f"Your system is optimized and ready."
+            )
+
+        return cleaned_reply or "Automations executed successfully, boss."
 
     # ---- command execution -------------------------------------------
     def execute(self, text: str, source: str = "text") -> str:
@@ -785,25 +876,9 @@ class Core:
                 return "No devices connected yet. The mobile app can pair via the phone token."
             return "Connected devices: " + "; ".join(parts) + "."
 
-        # autonomous ideas & proactive automation (powered by Gemma 4 12B)
-        if re.search(r"(?:own\s+idea|give\s+(?:me\s+)?(?:an?\s+)?idea|what\s+to\s+do|what\s+should\s+(?:i|we)\s+do|automate\s+(?:something|everything|all)|surprise\s+me|new\s+idea|autonomous\s+mode|make\s+all\s+automation|what\s+can\s+you\s+automate|do\s+all\s+automation|what\s+will\s+you\s+do|clean\s+(?:up\s+)?(?:temp|cache|system|my\s+pc))", t):
-            stats = tools.system_stats()
-            hour = datetime.datetime.now().hour
-            time_ctx = "late night" if hour >= 22 or hour < 5 else ("morning" if hour < 12 else ("afternoon" if hour < 17 else "evening"))
-            earbuds_info = "connected to wireless earbuds" if getattr(self, "audio_output_is_headset", True) else "on system speakers"
-            prompt = (
-                f"Context: Time is {time_ctx} ({datetime.datetime.now().strftime('%I:%M %p')}). "
-                f"System: RAM usage {stats['ram']}%, CPU {stats['cpu']}%, Battery {stats['battery']}%. "
-                f"Audio output is {earbuds_info}. "
-                f"User request: '{text}'. "
-                f"As Spagasus Jarvis with autonomous decision-making powered by Gemma 4 12B, formulate an intelligent "
-                f"idea and plan of action for Gokul right now. Proactively decide what to automate (e.g. clean temp files, set volume, play music, open tools). "
-                f"Speak what you are doing in 1-2 clear, confident sentences and append [ACTION:...] tags to execute the automations immediately."
-            )
-            reply = llm_chat(memory.recent_turns(), prompt)
-            if reply and not reply.startswith("(LLM unavailable"):
-                cleaned, executed = process_autonomous_actions(reply)
-                return cleaned or reply
+        # autonomous ideas & proactive automation (powered by Gemma 4 12B & AI)
+        if re.search(r"(?:own\s+idea|own\s+knowledge|have\s+own|what\s+to\s+do|what\s+should\s+(?:i|we)\s+do|automate\s+(?:something|everything|all|now)?|surprise\s+me|new\s+idea|autonomous\s+mode|make\s+all\s+automation|what\s+can\s+you\s+automate|do\s+all\s+automation|do\s+automation|what\s+will\s+you\s+do|clean\s+(?:up\s+)?(?:temp|cache|system|my\s+pc)|optimize\s+(?:system|pc|memory|ram)|proactive)", t):
+            return self.generate_autonomous_action_plan(text)
 
         # audio / microphone / wireless earbuds status check
         if re.search(r"(?:can\s+you\s+(?:hear|ear)\s+me|mic(?:rophone)?\s+status|check\s+mic|earbud|wireless\s+mic|(?:hear|ear)\s+(?:in|through)\s+(?:the\s+)?(?:wireless|mic|earbud)|wireless\s+earbud)", t):

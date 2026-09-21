@@ -1034,12 +1034,18 @@
   const dockTimer = document.getElementById('dockTimer');
   const dockVision = document.getElementById('dockVision');
 
-  function postAction(url, body) {
-    fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    }).catch(() => {});
+  async function postAction(url, body) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (data && data.message) {
+        addLine('jarvis', data.message);
+      }
+    } catch (e) {}
   }
 
   if (dockIdea) dockIdea.addEventListener('click', () => {
@@ -1048,18 +1054,28 @@
     sendCommand(prompt);
   });
   if (dockUnlock) dockUnlock.addEventListener('click', () => {
+    addLine('user', 'Unlock mobile');
     postAction('/api/action/phone_unlock', { pin: '1234' });
-    addLine('user', 'Unlock mobile (PIN 1234)');
-    addLine('jarvis', 'Waking mobile and entering PIN 1234...');
   });
-  if (dockPlay) dockPlay.addEventListener('click', () => postAction('/api/action/media', { action: 'playpause' }));
-  if (dockNext) dockNext.addEventListener('click', () => postAction('/api/action/media', { action: 'next' }));
-  if (dockMute) dockMute.addEventListener('click', () => postAction('/api/action/media', { action: 'mute' }));
-  if (dockDesktop) dockDesktop.addEventListener('click', () => postAction('/api/action/window', { action: 'minimize_all' }));
+  if (dockPlay) dockPlay.addEventListener('click', () => {
+    addLine('user', 'Toggle media playback');
+    postAction('/api/action/media', { action: 'playpause' });
+  });
+  if (dockNext) dockNext.addEventListener('click', () => {
+    addLine('user', 'Skip to next track');
+    postAction('/api/action/media', { action: 'next' });
+  });
+  if (dockMute) dockMute.addEventListener('click', () => {
+    addLine('user', 'Toggle mute');
+    postAction('/api/action/media', { action: 'mute' });
+  });
+  if (dockDesktop) dockDesktop.addEventListener('click', () => {
+    addLine('user', 'Show desktop');
+    postAction('/api/action/window', { action: 'minimize_all' });
+  });
   if (dockTimer) dockTimer.addEventListener('click', () => {
-    postAction('/api/timers', { seconds: 300, label: '5-Minute Timer' });
     addLine('user', 'Set a timer for 5 minutes.');
-    addLine('jarvis', 'Timer set for 5 minutes.');
+    postAction('/api/timers', { seconds: 300, label: '5-Minute Timer' });
   });
 
   // ==================================================================
